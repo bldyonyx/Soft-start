@@ -14,8 +14,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "soft-start.helloWorld",
-        "title": "Hello World"
+        "command": "soft-start.openDashboard",
+        "title": "Soft Start: Open Dashboard"
       }
     ]
   },

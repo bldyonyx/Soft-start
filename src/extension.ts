@@ -1,26 +1,49 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
+import { readFileSync } from "node:fs";
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+  const disposable = vscode.commands.registerCommand(
+    "soft-start.openDashboard",
+    () => {
+      const panel = vscode.window.createWebviewPanel(
+        "softStart",
+        "Soft Start",
+        vscode.ViewColumn.One,
+        {
+          enableScripts: true,
+          localResourceRoots: [
+            vscode.Uri.joinPath(context.extensionUri, "media"),
+          ],
+        },
+      );
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "soft-start" is now active!');
+      const htmlPath = vscode.Uri.joinPath(
+        context.extensionUri,
+        "media",
+        "index.html",
+      );
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('soft-start.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from Soft Start!');
-	});
+      let html = readFileSync(htmlPath.fsPath, "utf8");
 
-	context.subscriptions.push(disposable);
+      // Convert Vite's relative asset paths into VS Code webview URIs.
+      html = html.replace(
+        /(src|href)="\.\/([^"]+)"/g,
+        (_match, attribute: string, assetPath: string) => {
+          const resourceUri = vscode.Uri.joinPath(
+            context.extensionUri,
+            "media",
+            assetPath,
+          );
+
+          return `${attribute}="${panel.webview.asWebviewUri(resourceUri)}"`;
+        },
+      );
+
+      panel.webview.html = html;
+    },
+  );
+
+  context.subscriptions.push(disposable);
 }
 
-// This method is called when your extension is deactivated
 export function deactivate() {}

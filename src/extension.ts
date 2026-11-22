@@ -1,5 +1,52 @@
 import * as vscode from "vscode";
 import { readFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+
+function getNonce(): string {
+  return randomBytes(16).toString("base64");
+}
+
+function getWebviewHtml(
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+): string {
+  const mediaUri = vscode.Uri.joinPath(extensionUri, "media");
+  const htmlUri = vscode.Uri.joinPath(mediaUri, "index.html");
+
+  const nonce = getNonce();
+  let html = readFileSync(htmlUri.fsPath, "utf8");
+
+  // Convert local resource paths into VS Code webview URIs.
+  html = html.replace(
+    /(src|href)="(?!https?:|data:|#)(\.?\/?[^"]+)"/g,
+    (_match, attribute: string, assetPath: string) => {
+      const cleanPath = assetPath.replace(/^\.\//, "").replace(/^\//, "");
+      const resourceUri = vscode.Uri.joinPath(mediaUri, cleanPath);
+
+      return `${attribute}="${webview.asWebviewUri(resourceUri)}"`;
+    },
+  );
+
+  // Vite generates an external module script.
+  html = html.replace(/<script\b/g, `<script nonce="${nonce}"`);
+
+  const csp = [
+    "default-src 'none'",
+    `script-src 'nonce-${nonce}'`,
+    `style-src ${webview.cspSource}`,
+    `img-src ${webview.cspSource} data:`,
+    `font-src ${webview.cspSource}`,
+    "connect-src 'none'",
+  ].join("; ");
+
+  html = html.replace(
+    "<head>",
+    `<head>
+    <meta http-equiv="Content-Security-Policy" content="${csp}">`,
+  );
+
+  return html;
+}
 
 export function activate(context: vscode.ExtensionContext) {
   const disposable = vscode.commands.registerCommand(
@@ -17,29 +64,7 @@ export function activate(context: vscode.ExtensionContext) {
         },
       );
 
-      const htmlPath = vscode.Uri.joinPath(
-        context.extensionUri,
-        "media",
-        "index.html",
-      );
-
-      let html = readFileSync(htmlPath.fsPath, "utf8");
-
-      // Convert Vite's relative asset paths into VS Code webview URIs.
-      html = html.replace(
-        /(src|href)="\.\/([^"]+)"/g,
-        (_match, attribute: string, assetPath: string) => {
-          const resourceUri = vscode.Uri.joinPath(
-            context.extensionUri,
-            "media",
-            assetPath,
-          );
-
-          return `${attribute}="${panel.webview.asWebviewUri(resourceUri)}"`;
-        },
-      );
-
-      panel.webview.html = html;
+      panel.webview.html = getWebviewHtml(panel.webview, context.extensionUri);
     },
   );
 

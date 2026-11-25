@@ -2,8 +2,10 @@ import * as vscode from "vscode";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { createProject } from "./newProject";
-import { currentProject, openRecentProject, presentProject, projectId, RecentProjects } from "./recentProjects";
-import { isDashboardMessage, type RecentProjectsMessage } from "./webviewMessages";
+import { presentProject as presentRecentProject, RecentProjects } from "./recentProjects";
+import { currentProject, openProject, presentProject, projectId } from "./projects";
+import { PinnedProjects, promptPinnedProjectName, selectPinnedProject } from "./pinnedProjects";
+import { isDashboardMessage, type PinnedProjectsMessage, type RecentProjectsMessage } from "./webviewMessages";
 
 function getNonce(): string {
   return randomBytes(16).toString("base64");
@@ -53,6 +55,7 @@ function getWebviewHtml(
 
 export function activate(context: vscode.ExtensionContext) {
   const history = new RecentProjects(context.globalState);
+  const pins = new PinnedProjects(context.globalState);
   const dashboards = new Set<vscode.Webview>();
   let actionInProgress = false;
   let observedId: string | undefined;
@@ -61,7 +64,17 @@ export function activate(context: vscode.ExtensionContext) {
   function sendHistory(targets: Iterable<vscode.Webview>) {
     const message: RecentProjectsMessage = {
       type: "recentProjects",
-      projects: history.list().map(presentProject),
+      projects: history.list().map(presentRecentProject),
+    };
+    for (const webview of targets) {
+      void webview.postMessage(message);
+    }
+  }
+
+  function sendPins(targets: Iterable<vscode.Webview>) {
+    const message: PinnedProjectsMessage = {
+      type: "pinnedProjects",
+      projects: pins.list().map((entry) => presentProject({ ...entry, name: entry.displayName ?? entry.name })),
     };
     for (const webview of targets) {
       void webview.postMessage(message);
@@ -92,7 +105,10 @@ export function activate(context: vscode.ExtensionContext) {
       if (state.focused) {
         trackProject();
         if (dashboards.size) {
-          void recording.then(() => sendHistory(dashboards));
+          void recording.then(() => {
+            sendHistory(dashboards);
+            sendPins(dashboards);
+          });
         }
       }
     }),
@@ -120,6 +136,7 @@ export function activate(context: vscode.ExtensionContext) {
           await recording;
           if (dashboards.has(webview)) {
             sendHistory([webview]);
+            sendPins([webview]);
           }
           return;
         }
@@ -150,9 +167,49 @@ export function activate(context: vscode.ExtensionContext) {
             return;
           }
 
+          switch (message.type) {
+            case "addPinnedProject": {
+              const project = await selectPinnedProject();
+              if (project) {
+                await pins.pin(project);
+                sendPins(dashboards);
+              }
+              return;
+            }
+            case "pinRecentProject": {
+              const project = history.list().find(({ id }) => id === message.id);
+              if (!project) {
+                throw new Error("This project is no longer in Soft Start’s recent history.");
+              }
+              await pins.pin({ ...project, uri: vscode.Uri.from(project.uri) });
+              sendPins(dashboards);
+              return;
+            }
+            case "unpinProject":
+              await pins.unpin(message.id);
+              sendPins(dashboards);
+              return;
+            case "reorderPinnedProjects":
+              await pins.reorder(message.ids);
+              sendPins(dashboards);
+              return;
+            case "renamePinnedProject": {
+              const project = pins.list().find(({ id }) => id === message.id);
+              if (!project) {
+                throw new Error("This project is no longer pinned.");
+              }
+              const name = await promptPinnedProjectName(project);
+              if (name !== undefined) {
+                await pins.rename(project.id, name);
+                sendPins(dashboards);
+              }
+              return;
+            }
+          }
+
           let id: string | undefined;
           if (message.type === "viewAllRecentProjects") {
-            const items = history.list().map(presentProject).map((item) => ({
+            const items = history.list().map(presentRecentProject).map((item) => ({
               id: item.id,
               label: item.name,
               description: item.path,
@@ -163,17 +220,20 @@ export function activate(context: vscode.ExtensionContext) {
               matchOnDescription: true,
             });
             id = selected?.id;
-          } else if (message.type === "openRecentProject") {
+          } else if (message.type === "openRecentProject" || message.type === "openPinnedProject") {
             id = message.id;
           }
           if (id) {
-            const project = history.list().find((entry) => entry.id === id);
+            const fromPins = message.type === "openPinnedProject";
+            const project = (fromPins ? pins.list() : history.list()).find((entry) => entry.id === id);
             if (!project) {
-              vscode.window.showWarningMessage("This project is no longer in Soft Start’s recent history.");
+              void vscode.window.showWarningMessage(fromPins ? "This project is no longer pinned." :
+                "This project is no longer in Soft Start’s recent history.");
+              sendPins(dashboards);
               sendHistory(dashboards);
               return;
             }
-            await openRecentProject(project);
+            await openProject(project);
             // The destination normally records on activation. Update here too if
             // VS Code keeps this host alive, such as when it focuses an existing window.
             await history.record({ ...project, uri: vscode.Uri.from(project.uri) });
@@ -182,6 +242,8 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           void vscode.window.showErrorMessage(`Soft Start: ${detail}`);
+          sendHistory(dashboards);
+          sendPins(dashboards);
         } finally {
           actionInProgress = false;
         }

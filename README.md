@@ -24,7 +24,7 @@ Project updates are published as individual files using the native filesystem. V
 
 Open the gear in the dashboard header. Appearance and dashboard edits update the preview as you work. **Save changes** writes the edited preferences, and **Restore Defaults** resets appearance and dashboard preferences after confirmation. Recent and pinned projects and the projects directory are kept.
 
-Appearance and dashboard preferences are application-scoped Soft Start user settings. The Projects section uses the machine-scoped `softStart.projectsDirectory` setting. In a WSL or other remote window, VS Code writes this setting to the remote host's user settings. Browse selects a folder for the draft. Save applies it to New Project, and saving an empty value returns New Project to prompting for a folder. Settings changes made in VS Code also update an open dashboard.
+Appearance and dashboard preferences are application-scoped Soft Start user settings. The Projects section uses the machine-scoped `softStart.projectsDirectory` setting. In a WSL or other remote window, VS Code writes this setting to the remote host's user settings. Browse selects a folder for the draft. Save applies it to New Project, and saving an empty value returns New Project to prompting for a folder. Settings changes made in VS Code also update an open dashboard. If a save fails partway, Soft Start reports which fields were applied and keeps unapplied edits for review. **Check saved settings** recovers from a missing reply by reading again. It never repeats a save or a native dialog.
 
 ## Use Soft Start at startup
 
@@ -38,9 +38,11 @@ Soft Start uses VS Code's configured startup editor and opens its own dashboard 
 
 The Startup Editor is changed via VS Code's **Global** user configuration target, including in WSL. This can affect other windows that inherit the same user preference. VS Code resolves whether a Remote user setting or the local user setting supplies the preference; Soft Start leaves workspace and workspace-folder settings alone. Restore from the same VS Code profile and local or remote host where you enabled replacement.
 
-**Restore original VS Code startup page** disables automatic opening and restores the saved user value. A previously inherited value is restored by removing the override. If the native user preference changed independently, choose **Keep current setting** or explicitly confirm restoration. **Restore Defaults** in Soft Start leaves startup preferences and the restore record in place.
+In a local window, **Restore original VS Code startup page** disables automatic opening and restores the saved User value. A previously inherited value is restored by removing the override. If the native preference changed independently, choose **Keep current setting** or explicitly confirm restoration. Soft Start rechecks the preference after confirmation.
 
-Before uninstalling, use **Restore original VS Code startup page**. After uninstalling, open VS Code Settings and search for **Workbench: Startup Editor**. In the applicable User or Remote settings tab, reset the setting if it was inherited, or select your previous value. Choose **Welcome Page** to show the standard Welcome editor.
+In WSL and other remote windows, the VS Code extension API reports a merged user value and cannot identify or directly target the original User or Remote layer. **Disable Soft Start automatic startup** sets Soft Start to **Never**, retains the backup, and shows the prior observed value. To restore it, inspect **Workbench: Startup Editor** in VS Code's User and Remote Settings tabs and change only the layer you can verify. Keep any newer native preference you want to retain. **Restore Defaults** in Soft Start leaves startup preferences, the restore record, and unsaved Startup and Projects edits in place.
+
+Before uninstalling, restore from a local window if that is where you opted in, or complete the manual restoration shown in the original remote window. After uninstalling, open VS Code Settings and search for **Workbench: Startup Editor**. In the applicable User or Remote settings tab, reset the setting if it was inherited, or select your previous value. Choose **Welcome Page** to show the standard Welcome editor.
 
 ## Build and package
 

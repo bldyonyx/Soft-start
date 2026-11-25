@@ -19,30 +19,69 @@ const hostScript = `
     };
     let saved = {...defaults, panelOpacity: 80};
     let welcome = 'available';
+    let revision = 0;
+    let lastResult;
     window.requests = [];
     window.reply = false;
     window.failRead = false;
+    window.saveMode = '';
+    window.held = undefined;
+    const originalTimeout = window.setTimeout;
+    window.setTimeout = (fn, ms, ...args) => originalTimeout(fn, ms === 8000 ? 600 : ms, ...args);
+    const snapshot = () => ({revision:++revision, busy:false, settings:{...saved}, welcome});
+    const emitResult = (result) => window.postMessage({type:'settingsResult',...snapshot(),...result}, '*');
+    const complete = (request, detail, fields = {}) => {
+      lastResult = {requestId:request.requestId,outcome:'success',detail,...fields};
+      if (saveMode === 'lost' && request.type === 'saveSettings') return;
+      if (saveMode === 'held' && request.type === 'saveSettings') {
+        held = {type:'settingsResult',...snapshot(),...lastResult};
+        return;
+      }
+      emitResult(lastResult);
+    };
+    window.externalEdit = changes => {
+      saved = {...saved,...changes};
+      window.postMessage({type:'settings',...snapshot()}, '*');
+    };
     window.acquireVsCodeApi = () => ({ postMessage(request) {
       requests.push(request);
       if (request.type === 'requestSettings' && reply) {
-        window.postMessage(failRead ? {type:'settingsLoadError', error:'Configuration unavailable'} :
-          {type:'settings', settings:saved, welcome}, '*');
+        if (failRead) {
+          window.postMessage({type:'settingsLoadError', revision:++revision, error:'Configuration unavailable'}, '*');
+        } else if (request.recover && lastResult?.requestId === request.recover) {
+          emitResult(lastResult);
+        } else {
+          window.postMessage({type:'settings', ...snapshot(), recover:request.recover}, '*');
+        }
       } else if (request.type === 'saveSettings') {
+        if (saveMode === 'unknown') return;
+        if (saveMode === 'reject') {
+          complete(request, 'Nothing was saved.', {outcome:'rejected',
+            writes:{applied:[], rejected:{projectsDirectory:'Use an absolute path'}}});
+          return;
+        }
+        if (saveMode === 'partial') {
+          saved = {...saved, backgroundColor:request.changes.backgroundColor};
+          complete(request, '1 saved, 1 not saved.', {outcome:'partial',
+            writes:{applied:['backgroundColor'],rejected:{welcomeMessage:'Changed in VS Code'}}});
+          return;
+        }
         saved = {...saved, ...request.changes};
-        window.postMessage({type:'settingsResult',settings:saved,welcome,status:'Settings saved.'}, '*');
+        complete(request, 'Settings saved.', {writes:{applied:Object.keys(request.changes),rejected:{}}});
       } else if (request.type === 'browseProjectsDirectory') {
-        window.postMessage({type:'settingsResult',settings:saved,welcome,directory:'/home/test/projects'}, '*');
+        complete(request, undefined, {directory:'/home/test/projects'});
       } else if (request.type === 'enableWelcomeReplacement') {
         welcome = 'active';
         saved = {...saved, startupBehavior:'emptyWindow'};
-        window.postMessage({type:'settingsResult',settings:saved,welcome,status:'Soft Start is set as the startup page.'}, '*');
+        complete(request, 'Soft Start is set as the startup page.');
       } else if (request.type === 'restoreWelcomeReplacement') {
         welcome = 'available';
         saved = {...saved, startupBehavior:'never'};
-        window.postMessage({type:'settingsResult',settings:saved,welcome,status:'Original VS Code startup preference restored.'}, '*');
+        complete(request, 'Original VS Code startup preference restored.');
       } else if (request.type === 'restoreSettings') {
         saved = {...defaults,projectsDirectory:saved.projectsDirectory,startupBehavior:saved.startupBehavior};
-        window.postMessage({type:'settingsResult',settings:saved,welcome,status:'Defaults restored.'}, '*');
+        complete(request, 'Defaults restored.', {writes:{applied:Object.keys(defaults)
+          .filter(key => key !== 'projectsDirectory' && key !== 'startupBehavior'),rejected:{}}});
       }
     } });
     window.token = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -60,7 +99,7 @@ const server = createServer(async (request, response) => {
   try {
     let body = await readFile(join(media, path));
     if (path === "/index.html") {
-      const hostMarker = url.searchParams.has("legacy") ? "" : '<meta name="soft-start-settings-host" content="2">';
+      const hostMarker = url.searchParams.has("legacy") ? "" : '<meta name="soft-start-settings-host" content="3">';
       body = body.toString().replace("<head>", `<head>${hostMarker}<script nonce="test-host">${hostScript}</script>`)
         .replace(/<script type=/g, '<script nonce="test-host" type=');
     }
@@ -202,7 +241,7 @@ try {
   await click(".utility-tile");
   assert.equal(await evaluate("requests.some(({type}) => type === 'quickAction')"), false);
   await evaluate("window.postMessage({type:'projectAction',busy:false,error:'Git Clone is unavailable.'}, '*')");
-  await waitFor("document.querySelector('[role=alert]').textContent === 'Git Clone is unavailable.'");
+  await waitFor("document.querySelector('[role=alert]')?.textContent === 'Git Clone is unavailable.'");
   await click(".utility-tile");
   assert.equal(await evaluate("requests.some(({type}) => type === 'quickAction')"), true);
   await evaluate("window.postMessage({type:'projectAction',busy:false}, '*')");
@@ -244,11 +283,11 @@ try {
   await waitFor("[...document.querySelectorAll('button')].some(button => button.textContent === 'Retry')");
   assert.equal(await evaluate("requests.filter(({type}) => type === 'requestSettings').length"), 3);
   await evaluate("reply = true; failRead = true");
-  await click(".settings-view form > div:last-of-type button");
-  await waitFor("document.querySelector('[role=status]')?.textContent.includes('Configuration unavailable')");
+  await click(".settings-status button");
+  await waitFor("document.querySelector('.settings-status [role=alert]')?.textContent.includes('Configuration unavailable')");
   assert.equal(await evaluate("document.querySelector('button[type=submit]').disabled"), true);
   await evaluate("failRead = false");
-  await click(".settings-view form > div:last-of-type button");
+  await click(".settings-status button");
   await waitFor("!document.querySelector('button[type=submit]').disabled");
   assert.equal(await evaluate("token('--background')"), "#343045", "sync must preserve the draft");
 
@@ -271,6 +310,18 @@ try {
   const replaceWelcome = "fieldset:nth-of-type(4) .settings-actions button:first-child";
   const restoreWelcome = "fieldset:nth-of-type(4) .settings-actions button:last-child";
   assert.equal(await evaluate(`document.querySelector('${startupSelect}').value`), "never");
+  await evaluate(`(() => {
+    const select = document.querySelector('${startupSelect}');
+    select.value = 'always';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await input("fieldset:nth-of-type(3) input", "/home/test/unsaved");
+  await click(".settings-view form > .settings-actions button:last-child");
+  await waitFor("document.querySelector('.settings-status p')?.textContent === 'Defaults restored.'");
+  assert.equal(await evaluate(`document.querySelector('${startupSelect}').value`), "always");
+  assert.equal(await evaluate("document.querySelector('fieldset:nth-of-type(3) input').value"), "/home/test/unsaved");
+  assert.match(await evaluate("document.querySelector('.settings-directory').textContent"), /\/home\/test\/edited/);
+  await input("fieldset:nth-of-type(3) input", "/home/test/edited");
   await click(replaceWelcome);
   await waitFor(`document.querySelector('${startupSelect}').value === 'emptyWindow'`);
   await evaluate(`(() => {
@@ -342,10 +393,65 @@ try {
   assert.ok((await artworkPixels(previewArt)).lighter >= 8, "preview artwork stays visible in a narrow window");
   await send("Emulation.clearDeviceMetricsOverride");
 
+  const welcomeInput = "fieldset:nth-of-type(2) input[type=text]";
+  const directoryInput = "fieldset:nth-of-type(3) input";
+  const saveButton = "button[type=submit]";
+  const recoveryButton = ".settings-status button";
+  const status = "document.querySelector('.settings-status p')?.textContent";
+  // A rejected save keeps the invalid field and unrelated valid edits.
+  await evaluate("saveMode = 'reject'");
+  await input(welcomeInput, "Keep this greeting");
+  await input(directoryInput, "../invalid");
+  await click(saveButton);
+  await waitFor(`${status} === 'Nothing was saved.'`);
+  assert.equal(await evaluate(`document.querySelector('${welcomeInput}').value`), "Keep this greeting");
+  assert.equal(await evaluate(`document.querySelector('${directoryInput}').value`), "../invalid");
+  assert.match(await evaluate("document.querySelector('.settings-status li').textContent"), /Projects directory/);
+
+  await input(directoryInput, "/home/test/edited");
+  await input(backgroundInput, "#131b2a");
+  await evaluate("saveMode = 'partial'");
+  await click(saveButton);
+  await waitFor(`${status} === '1 saved, 1 not saved.'`);
+  assert.equal(await evaluate(`document.querySelector('${welcomeInput}').value`), "Keep this greeting");
+  await evaluate("saveMode = 'lost'");
+  const beforeRecovery = await evaluate("requests.filter(({type}) => type === 'saveSettings').length");
+  await click(saveButton);
+  await waitFor(`${status}?.includes('outcome is unknown')`);
+  await input(welcomeInput, "Newer draft after timeout");
+  await click(recoveryButton);
+  await waitFor(`${status} === 'Settings saved.'`);
+  assert.equal(await evaluate("requests.filter(({type}) => type === 'saveSettings').length"), beforeRecovery + 1);
+  assert.equal(await evaluate(`document.querySelector('${welcomeInput}').value`), "Newer draft after timeout");
+  assert.deepEqual(await evaluate("Object.keys(requests.filter(({type}) => type === 'saveSettings').at(-1).changes).sort()"),
+    ["artworkOpacity", "welcomeMessage"]);
+
+  // A newer native snapshot must win over an older, correlated mutation reply.
+  await evaluate("saveMode = 'held'");
+  await click(saveButton);
+  await waitFor("Boolean(held)");
+  await evaluate("externalEdit({ welcomeMessage:'External change' }); window.postMessage(held, '*')");
+  await waitFor(`${status} === 'Settings saved.'`);
+  assert.equal(await evaluate(`document.querySelector('${welcomeInput}').value`), "Newer draft after timeout");
+  await click("[data-view-focus]");
+  await waitFor("document.querySelector('main h1')?.textContent.includes('External change')");
+  await click(".settings-gear");
+
+  // Recover when the host no longer knows the result.
+  await evaluate("saveMode = 'unknown'");
+  await click(saveButton);
+  await waitFor(`${status}?.includes('outcome is unknown')`);
+  await click(recoveryButton);
+  await waitFor(`${status}?.includes('earlier action could not be confirmed')`);
+  assert.equal(await evaluate(`document.querySelector('${saveButton}').disabled`), false);
+  assert.equal(await evaluate(`document.querySelector('${welcomeInput}').value`), "Newer draft after timeout");
+
+  await click(saveButton);
+  await waitFor("document.querySelector('fieldset').disabled");
   await send("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/?legacy=1` });
   await waitFor("document.querySelector('.settings-gear')");
   await click(".settings-gear");
-  await waitFor("document.querySelector('[role=status]')?.textContent.includes('older Soft Start build')");
+  await waitFor("document.querySelector('.settings-status [role=alert]')?.textContent.includes('different settings versions')");
   assert.equal(await evaluate("requests.some(({type}) => type === 'requestSettings')"), false);
   assert.equal(await evaluate("document.querySelector('button[type=submit]').disabled"), true);
   assert.deepEqual(errors, []);

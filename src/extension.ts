@@ -282,6 +282,7 @@ export function activate(context: vscode.ExtensionContext) {
     });
     panel.onDidDispose(() => {
       disposed = true;
+      settings.dispose(webview);
       clearTimeout(watchTimer);
       watcher?.close();
       dashboard.closed(panel);

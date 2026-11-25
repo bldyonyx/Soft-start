@@ -54,7 +54,7 @@ suite("Dashboard settings", () => {
     };
     await settings.update(changes);
     assert.deepEqual(new SettingsConfiguration(() => configuration).read(), changes);
-    assert.equal(updates.length, settingKeys.length);
+    assert.equal(updates.length, settingKeys.filter((key) => changes[key] !== defaultSettings[key]).length);
     await settings.update({ projectsDirectory: "" });
     assert.equal(settings.read().projectsDirectory, "");
   });
@@ -73,16 +73,20 @@ suite("Dashboard settings", () => {
 
   test("validates settings requests and full host snapshots", () => {
     for (const type of ["requestSettings", "restoreSettings", "browseProjectsDirectory"]) {
-      assert.equal(isDashboardMessage({ type }), true);
+      assert.equal(isDashboardMessage({ type, requestId: "test-1" }), true);
     }
-    assert.equal(isDashboardMessage({ type: "saveSettings", changes: { recentProjectsLimit: 6 } }), true);
+    assert.equal(isDashboardMessage({ type: "saveSettings", requestId: "test-1",
+      changes: { recentProjectsLimit: 6 }, expected: { recentProjectsLimit: 4 } }), true);
+    assert.equal(isDashboardMessage({ type: "browseProjectsDirectory" }), false);
+    assert.equal(isDashboardMessage({ type: "saveSettings", requestId: "test-1",
+      changes: { recentProjectsLimit: 6 }, expected: { panelOpacity: 80 } }), false);
     for (const changes of [null, [], {}, { command: "vscode.openFolder" }, { artworkVisible: "true" },
       { welcomeMessage: "a".repeat(161) }, { headerKaomoji: "a\nb" }, { panelOpacity: "80" }]) {
-      assert.equal(isDashboardMessage({ type: "saveSettings", changes }), false);
+      assert.equal(isDashboardMessage({ type: "saveSettings", requestId: "test-1", changes, expected: changes }), false);
     }
-    assert.equal(isSettingsMessage({ type: "settings", settings: defaultSettings }), true);
-    assert.equal(isSettingsMessage({ type: "settingsResult", settings: defaultSettings, error: "Failed" }), true);
-    assert.equal(isSettingsMessage({ type: "settings", settings: { welcomeMessage: "Only one key" } }), false);
+    assert.equal(isSettingsMessage({ type: "settings", revision: 1, busy: false, settings: defaultSettings }), true);
+    assert.equal(isSettingsMessage({ type: "settingsResult", revision: 1, busy: false, settings: defaultSettings, requestId: "test-1", outcome: "rejected", detail: "Failed" }), true);
+    assert.equal(isSettingsMessage({ type: "settings", revision: 1, busy: false, settings: { welcomeMessage: "Only one key" } }), false);
   });
 
   test("reacts to external Soft Start configuration changes and ignores unrelated changes", () => {
@@ -133,7 +137,7 @@ suite("Dashboard settings", () => {
         }
         return settings.read();
       },
-      update: (changes) => settings.update(changes),
+      update: (changes, expected) => settings.update(changes, expected),
       restoreDefaults: () => settings.restoreDefaults(async () => true),
     }, async () => undefined, (error) => errors.push(error));
     const webview = {
@@ -153,19 +157,22 @@ suite("Dashboard settings", () => {
     };
 
     assert.deepEqual(await send({ type: "requestSettings" }),
-      { type: "settingsLoadError", error: "Configuration unavailable" });
+      { type: "settingsLoadError", revision: 1, error: "Configuration unavailable" });
     assert.equal(errors.length, 1);
     failRead = false;
-    assert.deepEqual(await send({ type: "requestSettings" }), { type: "settings", settings: defaultSettings });
+    assert.deepEqual(await send({ type: "requestSettings" }), { type: "settings", revision: 2, busy: false, settings: defaultSettings });
 
     const edited = { ...defaultSettings, backgroundColor: "#131b2a" };
-    assert.deepEqual(await send({ type: "saveSettings", changes: { backgroundColor: edited.backgroundColor } }),
-      { type: "settingsResult", settings: edited, status: "Settings saved." });
-    assert.deepEqual(await send({ type: "requestSettings" }), { type: "settings", settings: edited });
+    assert.deepEqual(await send({ type: "saveSettings", requestId: "save-1", expected: { backgroundColor: defaultSettings.backgroundColor },
+      changes: { backgroundColor: edited.backgroundColor } }), {
+      type: "settingsResult", revision: 3, busy: false, settings: edited, outcome: "success", requestId: "save-1",
+      detail: "Settings saved.", writes: { applied: ["backgroundColor"], rejected: {} },
+    });
+    assert.deepEqual(await send({ type: "requestSettings" }), { type: "settings", revision: 4, busy: false, settings: edited });
 
     values.set("welcomeMessage", "External change");
     await host.publish(webview);
-    assert.deepEqual(replies.at(-1), { type: "settings", settings: { ...edited, welcomeMessage: "External change" } });
+    assert.deepEqual(replies.at(-1), { type: "settings", revision: 5, busy: false, settings: { ...edited, welcomeMessage: "External change" } });
   });
 
   test("confirms Restore Defaults and keeps the directory and project stores", async () => {
@@ -181,12 +188,12 @@ suite("Dashboard settings", () => {
     await pinned.pin(project);
     await settings.update({ welcomeMessage: "Changed", projectsDirectory: process.cwd(), startupBehavior: "always" });
     values.set("editor.fontSize", 16);
-    assert.equal(await settings.restoreDefaults(async () => false), false);
+    assert.equal(await settings.restoreDefaults(async () => false), undefined);
     assert.equal(settings.read().welcomeMessage, "Changed");
 
     const recentBefore = values.get(recentProjectsKey);
     const pinnedBefore = values.get(pinnedProjectsKey);
-    assert.equal(await settings.restoreDefaults(async () => true), true);
+    assert.deepEqual((await settings.restoreDefaults(async () => true))?.rejected, {});
     assert.deepEqual(settings.read(), { ...defaultSettings, projectsDirectory: process.cwd(), startupBehavior: "always" });
     assert.equal(values.get(recentProjectsKey), recentBefore);
     assert.equal(values.get(pinnedProjectsKey), pinnedBefore);
@@ -197,9 +204,88 @@ suite("Dashboard settings", () => {
     const { settings, failOn } = fixture();
     await settings.update({ accentColor: "#abcdef" });
     failOn("accentColor");
-    await assert.rejects(settings.update({ backgroundColor: "#ffffff", accentColor: "#123456" }), /Write failed/);
+    assert.deepEqual(await settings.update({ backgroundColor: "#ffffff", accentColor: "#123456" }), {
+      applied: ["backgroundColor"], rejected: { accentColor: "Write failed" },
+    });
     assert.equal(settings.read().accentColor, "#abcdef");
     assert.equal(settings.read().backgroundColor, "#ffffff");
+  });
+
+  test("preserves native edits made while earlier fields are being written", async () => {
+    const { configuration, values } = fixture();
+    const settings = new SettingsConfiguration(() => ({
+      ...configuration,
+      update: async (key, value, target) => {
+        await configuration.update(key, value, target);
+        if (key === "backgroundColor") {
+          values.set("welcomeMessage", "Concurrent native edit");
+        }
+      },
+    }));
+    const result = await settings.update({ backgroundColor: "#ffffff", welcomeMessage: "Dashboard edit" }, defaultSettings);
+    assert.deepEqual(result.applied, ["backgroundColor"]);
+    assert.match(result.rejected.welcomeMessage ?? "", /Changed in VS Code/);
+    assert.equal(settings.read().welcomeMessage, "Concurrent native edit");
+  });
+
+  test("rechecks appearance values after the Restore Defaults confirmation", async () => {
+    const { settings, values } = fixture();
+    await settings.update({ backgroundColor: "#131b2a", welcomeMessage: "Earlier" });
+    const result = await settings.restoreDefaults(async () => {
+      values.set("welcomeMessage", "External during modal");
+      return true;
+    });
+    assert.ok(result?.applied.includes("backgroundColor"));
+    assert.match(result?.rejected.welcomeMessage ?? "", /Changed in VS Code/);
+    assert.equal(settings.read().welcomeMessage, "External during modal");
+  });
+
+  test("correlates results and recovers a completed save via a fresh snapshot without replaying writes", async () => {
+    const { settings, values, updates } = fixture();
+    const replies: SettingsMessage[] = [];
+    const host = new SettingsWebview(settings);
+    const webview = { postMessage: async (message: unknown) => {
+      assert.ok(isSettingsMessage(message));
+      replies.push(message);
+      return true;
+    } };
+    const request = { type: "saveSettings", requestId: "save-1", changes: { panelOpacity: 40 }, expected: { panelOpacity: 85 } } as const;
+    await host.handle(request, webview);
+    const firstRevision = replies.at(-1)?.revision ?? 0;
+    values.set("panelOpacity", 25);
+    await host.handle({ type: "requestSettings", recover: "save-1" }, webview);
+    const result = replies.at(-1);
+    assert.equal(result?.type, "settingsResult");
+    assert.equal(result.requestId, "save-1");
+    assert.equal(result.settings.panelOpacity, 25);
+    assert.ok(result.revision > firstRevision);
+    assert.deepEqual(updates, ["panelOpacity"]);
+    await host.handle({ type: "requestSettings", recover: "different" }, webview);
+    assert.equal(replies.at(-1)?.type, "settings");
+  });
+
+  test("disposal ignores a pending picker result and lets a new view recover the host", async () => {
+    const { settings } = fixture();
+    let done!: (directory: string) => void;
+    const busy = new Promise<string>((resolve) => { done = resolve; });
+    const host = new SettingsWebview(settings, () => busy);
+    const abandoned = { postMessage: async () => assert.fail("Disposed view must not receive the result") };
+    const replies: SettingsMessage[] = [];
+    const reopened = { postMessage: async (message: unknown) => {
+      assert.ok(isSettingsMessage(message));
+      replies.push(message);
+      return true;
+    } };
+    const pending = host.handle({ type: "browseProjectsDirectory", requestId: "browse" }, abandoned);
+    host.dispose(abandoned);
+    await host.handle({ type: "requestSettings" }, reopened);
+    const before = replies.at(-1);
+    assert.ok(before?.type === "settings" && before.busy);
+    done("/projects");
+    await pending;
+    await host.handle({ type: "requestSettings", recover: "browse" }, reopened);
+    const after = replies.at(-1);
+    assert.ok(after?.type === "settings" && !after.busy);
   });
 
   test("cancels directory browsing without returning a value", async () => {

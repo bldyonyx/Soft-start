@@ -15,14 +15,20 @@ type StartupApi = {
   offer: () => Thenable<boolean>;
   confirmEnable: () => Thenable<boolean>;
   confirmRestore: (changed: boolean) => Thenable<"restore" | "keep" | undefined>;
+  watchNative?: (changed: () => void) => vscode.Disposable;
 };
 
 const enableLabel = "Set as startup page";
 const enableDetail = "This disables the native startup editor in VS Code’s user settings. Soft Start will open in empty windows with no restored editor tabs.";
 
 const vscodeStartupApi: StartupApi = {
-  workbench: () => vscode.workspace.getConfiguration("workbench"),
+  workbench: () => vscode.workspace.getConfiguration("workbench", null),
   softStart: () => vscode.workspace.getConfiguration("softStart"),
+  watchNative: (changed) => vscode.workspace.onDidChangeConfiguration((event) => {
+    if (event.affectsConfiguration("workbench.startupEditor")) {
+      changed();
+    }
+  }),
   offer: async () => await vscode.window.showInformationMessage(
     `Set Soft Start as your startup page? ${enableDetail}`, enableLabel, "Not now",
   ) === enableLabel,
@@ -70,12 +76,28 @@ export class Startup {
     }
   }
 
-  private nativeUserValue(): string | undefined {
-    const inspection = this.api.workbench().inspect<unknown>(nativeKey);
+  private nativePreference() {
+    const config = this.api.workbench();
+    const inspection = config.inspect<unknown>(nativeKey);
     if (!inspection || (inspection.globalValue !== undefined && typeof inspection.globalValue !== "string")) {
       throw new Error("Soft Start could not read the VS Code Startup Editor user preference.");
     }
-    return inspection.globalValue;
+    return {
+      user: inspection.globalValue,
+      fingerprint: JSON.stringify([inspection.globalValue, inspection.defaultValue,
+        inspection.workspaceValue, inspection.workspaceFolderValue, config.get(nativeKey)]),
+    };
+  }
+
+  welcomeRestoreGuidance(): string | undefined {
+    const backup = this.backup();
+    if (!backup || backup.scope === "local" || backup.scope !== this.scope) {
+      return;
+    }
+    const previous = backup.previous === null
+      ? "No explicit user value was visible before opt-in."
+      : `Before opt-in, VS Code reported "${backup.previous}" as the user value.`;
+    return `The User and Remote settings layers cannot be distinguished safely. ${previous} Open VS Code Settings, search for Workbench: Startup Editor, and compare the User and Remote tabs. Restore or reset only the setting you can identify as the original target, and keep any newer preference you want to retain.`;
   }
 
   private writeNative(value: string | undefined) {
@@ -94,7 +116,11 @@ export class Startup {
     if (backup.scope !== this.scope) {
       return "otherHost";
     }
-    return this.nativeUserValue() === "none" && this.api.workbench().get(nativeKey) === "none" ? "active" : "changed";
+    try {
+      return this.nativePreference().user === "none" && this.api.workbench().get(nativeKey) === "none" ? "active" : "changed";
+    } catch {
+      return "changed";
+    }
   }
 
   shouldOpen(window: Parameters<typeof shouldOpenAtStartup>[2]): boolean {
@@ -120,18 +146,26 @@ export class Startup {
       if (!confirmed && !await this.api.confirmEnable()) {
         return;
       }
-      const previous = this.nativeUserValue();
-      if (!backup || previous !== "none") {
+      const before = this.nativePreference();
+      const previous = before.user;
+      if (!backup) {
         await this.state.update(welcomeBackupKey, { scope: this.scope, previous: previous ?? null } satisfies Backup);
       }
+      let attemptedNative = false;
       try {
+        if (this.nativePreference().fingerprint !== before.fingerprint) {
+          throw new Error("VS Code’s startup preference changed during setup. Review it and try again.");
+        }
         if (previous !== "none") {
+          attemptedNative = true;
           await this.writeNative("none");
         }
         await this.writeMode("emptyWindow");
       } catch (error) {
-        // Keep the backup if rollback fails, so the user can still restore the native preference.
-        if (previous !== "none" && this.nativeUserValue() === "none") {
+        if (attemptedNative && this.scope !== "local") {
+          throw new Error("Automatic startup could not be enabled. The previous VS Code preference is saved for manual restoration.", { cause: error });
+        }
+        if (attemptedNative && this.nativePreference().user === "none") {
           await this.writeNative(previous);
         }
         await this.state.update(welcomeBackupKey, backup);
@@ -149,20 +183,42 @@ export class Startup {
       if (!backup || backup.scope !== this.scope) {
         throw new Error("Open the original VS Code host to restore its saved startup preference.");
       }
-      const before = this.nativeUserValue();
-      const choice = await this.api.confirmRestore(before !== "none");
-      if (!choice) {
-        return;
+      const guidance = this.welcomeRestoreGuidance();
+      if (guidance) {
+        // Global resolves through VS Code's current user layer. A merged value cannot prove
+        // that it still points to the layer written during opt-in, even if it is unchanged.
+        await this.writeMode("never");
+        return "Soft Start automatic startup disabled. Follow the manual restoration instructions in Startup.";
       }
-      await this.writeMode("never");
-      if (choice === "restore") {
-        if (this.nativeUserValue() !== before) {
-          throw new Error("VS Code’s startup preference changed during confirmation. Review it and try again.");
+
+      const before = this.nativePreference();
+      let changed = false;
+      const watcher = this.api.watchNative?.(() => { changed = true; });
+      try {
+        const choice = await this.api.confirmRestore(before.user !== "none");
+        if (!choice) {
+          return;
         }
-        await this.writeNative(backup.previous ?? undefined);
+        const requireUnchanged = () => {
+          const latestBackup = this.backup();
+          if (changed || this.nativePreference().fingerprint !== before.fingerprint ||
+              latestBackup?.scope !== backup.scope || latestBackup.previous !== backup.previous) {
+            throw new Error("VS Code’s startup preference changed during confirmation. Review it and try again.");
+          }
+        };
+        if (choice === "restore") {
+          requireUnchanged();
+        }
+        await this.writeMode("never");
+        if (choice === "restore") {
+          requireUnchanged();
+          await this.writeNative(backup.previous ?? undefined);
+        }
+        await this.state.update(welcomeBackupKey, undefined);
+        return choice === "restore" ? "Original VS Code startup preference restored." : "Current VS Code startup preference kept.";
+      } finally {
+        watcher?.dispose();
       }
-      await this.state.update(welcomeBackupKey, undefined);
-      return choice === "restore" ? "Original VS Code startup preference restored." : "Current VS Code startup preference kept.";
     });
   }
 

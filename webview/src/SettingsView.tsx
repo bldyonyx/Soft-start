@@ -1,3 +1,4 @@
+import type { SettingKey } from "../../src/dashboardSettings";
 import { isStartupBehavior } from "../../src/startupPolicy";
 import type { ReactNode } from "react";
 import { defaultSettings, kaomojiMaxLength, recentLimits, welcomeMaxLength } from "../../src/dashboardSettings";
@@ -55,6 +56,13 @@ function RangeControl({ label, value, min = 0, max = 100, unit = "", change }: {
   );
 }
 
+const settingLabels: Record<SettingKey, string> = {
+  backgroundColor: "Background color", accentColor: "Accent color", panelOpacity: "Panel opacity",
+  artworkVisible: "Background artwork visibility", artworkOpacity: "Artwork opacity", welcomeMessage: "Welcome message",
+  headerKaomoji: "Header kaomoji", decorativeSymbols: "Decorative symbols", recentProjectsLimit: "Visible recent projects",
+  startupBehavior: "Startup behavior", projectsDirectory: "Projects directory",
+};
+
 export function SettingsView({ settings, back, preview }: {
   settings: ReturnType<typeof useDashboardSettings>;
   back: () => void;
@@ -62,12 +70,38 @@ export function SettingsView({ settings, back, preview }: {
 }) {
   const { preview: current, saved, edit } = settings;
 
+  const feedback = settings.feedback;
+  const error = Boolean(settings.syncError || settings.unknown || feedback?.outcome === "rejected" || feedback?.outcome === "partial");
+  const status = settings.pending ? "Waiting for the settings action to finish…"
+    : settings.rechecking ? "Checking saved settings…"
+    : settings.syncError ?? (settings.unknown ? "The action’s outcome is unknown. Check saved settings before trying again."
+      : settings.hostBusy ? "Another settings action is running."
+      : feedback?.detail ?? (!settings.ready ? "Loading saved settings…" : settings.dirty ? "Unsaved changes." : "Saved settings loaded."));
+  const rejected = Object.entries(feedback?.writes?.rejected ?? {}) as [SettingKey, string][];
+
   return (
     <main className="dashboard settings-view" aria-labelledby="settings-title">
       <header className="dashboard-header">
         <h1 id="settings-title">Settings</h1>
         <button type="button" data-view-focus onClick={back}>Back to dashboard</button>
       </header>
+
+      <div className="settings-status">
+        <div role={error ? "alert" : "status"}>
+          <p>{status}</p>
+          {settings.dirty && status !== "Unsaved changes." && <p>Unsaved edits remain.</p>}
+          {!settings.pending && rejected.length > 0 && (
+            <ul>
+              {rejected.map(([key, detail]) => <li key={key}>{settingLabels[key]} — {detail}</li>)}
+            </ul>
+          )}
+        </div>
+        {settings.retry && !settings.rechecking && (settings.syncError || settings.unknown || settings.hostBusy) && (
+          <button type="button" onClick={settings.retry}>
+            {settings.unknown || settings.hostBusy ? "Check saved settings" : "Retry"}
+          </button>
+        )}
+      </div>
 
       <section aria-labelledby="preview-title">
         <h2 id="preview-title" className="section-title">Preview</h2>
@@ -146,11 +180,15 @@ export function SettingsView({ settings, back, preview }: {
           </label>
           <p id="startup-behavior-help">Empty windows only skips restored tabs. Always includes workspaces and preserves focus on open editors. Never opens Soft Start only on demand. Automatic opening requires VS Code’s Startup Editor to be None.</p>
           {settings.welcome === "changed" && <p>A VS Code preference is overriding the startup replacement.</p>}
+          {settings.welcomeGuidance && <p id="welcome-restore-guidance">{settings.welcomeGuidance}</p>}
           {settings.welcome === "otherHost" && <p>Open the original VS Code host to restore its saved startup preference.</p>}
           <div className="settings-actions">
-            <button type="button" disabled={settings.welcome !== "available"} onClick={settings.enableWelcome}>Replace VS Code Welcome page</button>
+            <button type="button" disabled={settings.welcome !== "available" && settings.welcome !== "changed"} onClick={settings.enableWelcome}>Replace VS Code Welcome page</button>
             <button type="button" disabled={settings.welcome !== "active" && settings.welcome !== "changed"}
-              onClick={settings.restoreWelcome}>Restore original VS Code startup page</button>
+              aria-describedby={settings.welcomeGuidance ? "welcome-restore-guidance" : undefined}
+              onClick={settings.restoreWelcome}>
+              {settings.welcomeGuidance ? "Disable Soft Start automatic startup" : "Restore original VS Code startup page"}
+            </button>
           </div>
         </fieldset>
 
@@ -158,17 +196,6 @@ export function SettingsView({ settings, back, preview }: {
           <button type="submit" disabled={!settings.ready || settings.pending || !settings.dirty}>Save changes</button>
           <button type="button" disabled={!settings.ready || settings.pending} onClick={settings.restore}>Restore Defaults</button>
         </div>
-        {!settings.ready && (
-          <div className="settings-actions">
-            <p role="status">
-              {settings.syncError ?? "Loading saved settings…"}
-            </p>
-            {settings.syncError && settings.retry && <button type="button" onClick={settings.retry}>Retry</button>}
-          </div>
-        )}
-        {settings.feedback && (
-          <p role={settings.feedback.error ? "alert" : "status"}>{settings.feedback.text}</p>
-        )}
       </form>
     </main>
   );

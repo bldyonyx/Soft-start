@@ -1,11 +1,18 @@
 import * as vscode from "vscode";
 import {
-  customizationKeys, defaultSettings, isSettingsPatch, isSettingValue, settingKeys, type DashboardSettings,
+  customizationKeys, defaultSettings, isSettingsPatch, isSettingValue, settingKeys, type DashboardSettings, type SettingKey, type SettingsPatch,
 } from "./dashboardSettings";
+import type { SettingsWriteReport } from "./webviewMessages";
 import { pickProjectsDirectory, projectsDirectoryPath, validateProjectsDirectory } from "./projectsDirectory";
 
 const section = "softStart";
 type Configuration = Pick<vscode.WorkspaceConfiguration, "get" | "update">;
+
+export class SettingsValidationError extends Error {
+  constructor(readonly key: SettingKey, message: string) {
+    super(message);
+  }
+}
 
 export class SettingsConfiguration {
   constructor(private readonly configuration: () => Configuration = () => vscode.workspace.getConfiguration(section)) {}
@@ -31,31 +38,54 @@ export class SettingsConfiguration {
     };
   }
 
-  async update(changes: unknown): Promise<void> {
+  async update(changes: unknown, expected?: SettingsPatch): Promise<SettingsWriteReport> {
     if (!isSettingsPatch(changes)) {
       throw new Error("Invalid dashboard settings.");
     }
     if (changes.projectsDirectory !== undefined) {
-      validateProjectsDirectory(changes.projectsDirectory);
-    }
-    const config = this.configuration();
-    for (const key of settingKeys) {
-      if (Object.hasOwn(changes, key)) {
-        await config.update(key, changes[key], vscode.ConfigurationTarget.Global);
+      try {
+        validateProjectsDirectory(changes.projectsDirectory);
+      } catch (error) {
+        throw new SettingsValidationError("projectsDirectory", error instanceof Error ? error.message : String(error));
       }
     }
+    return this.write(settingKeys.filter((key) => Object.hasOwn(changes, key)), changes, expected ?? this.read());
   }
 
-  async restoreDefaults(confirm: () => Thenable<boolean> = confirmRestore): Promise<boolean> {
+  async restoreDefaults(confirm: () => Thenable<boolean> = confirmRestore): Promise<SettingsWriteReport | undefined> {
+    const expected = this.read();
     if (!await confirm()) {
-      return false;
+      return;
     }
-    const config = this.configuration();
-    for (const key of customizationKeys) {
-      await config.update(key, undefined, vscode.ConfigurationTarget.Global);
-    }
-    return true;
+    return this.write(customizationKeys, {}, expected, true);
   }
+
+  private async write(
+    keys: readonly SettingKey[], changes: SettingsPatch, expected: SettingsPatch, reset = false,
+  ): Promise<SettingsWriteReport> {
+    const report: SettingsWriteReport = { applied: [], rejected: {} };
+    for (const key of keys) {
+      try {
+        const config = this.configuration();
+        const value = config.get<unknown>(key);
+        const current = isSettingValue(key, value) ? value : defaultSettings[key];
+        if (reset || current !== changes[key]) {
+          if (current !== expected[key]) {
+            throw new Error("Changed in VS Code since this edit was prepared.");
+          }
+          await config.update(key, reset ? undefined : changes[key], vscode.ConfigurationTarget.Global);
+        }
+        if (this.read()[key] !== (reset ? defaultSettings[key] : changes[key])) {
+          throw new Error("The effective VS Code value differs after the write.");
+        }
+        report.applied.push(key);
+      } catch (error) {
+        report.rejected[key] = error instanceof Error ? error.message : String(error);
+      }
+    }
+    return report;
+  }
+
 }
 
 async function confirmRestore(): Promise<boolean> {

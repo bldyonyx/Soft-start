@@ -2,7 +2,8 @@ import * as vscode from "vscode";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { createProject } from "./newProject";
-import { isQuickActionMessage } from "./quickActions";
+import { currentProject, openRecentProject, presentProject, projectId, RecentProjects } from "./recentProjects";
+import { isDashboardMessage, type RecentProjectsMessage } from "./webviewMessages";
 
 function getNonce(): string {
   return randomBytes(16).toString("base64");
@@ -51,10 +52,51 @@ function getWebviewHtml(
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  const history = new RecentProjects(context.globalState);
+  const dashboards = new Set<vscode.Webview>();
   let actionInProgress = false;
-  const disposable = vscode.commands.registerCommand(
-    "soft-start.openDashboard",
-    () => {
+  let observedId: string | undefined;
+  let recording = Promise.resolve();
+
+  function sendHistory(targets: Iterable<vscode.Webview>) {
+    const message: RecentProjectsMessage = {
+      type: "recentProjects",
+      projects: history.list().map(presentProject),
+    };
+    for (const webview of targets) {
+      void webview.postMessage(message);
+    }
+  }
+
+  function trackProject() {
+    const project = currentProject(vscode.workspace);
+    const id = project && projectId(project.uri);
+    if (id === observedId) {
+      return;
+    }
+    observedId = id;
+    if (project) {
+      recording = history.record(project).then(() => sendHistory(dashboards)).catch((error: unknown) => {
+        if (observedId === id) {
+          observedId = undefined;
+        }
+        console.error("Soft Start could not record the current project.", error);
+      });
+    }
+  }
+
+  trackProject();
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(trackProject),
+    vscode.window.onDidChangeWindowState((state) => {
+      if (state.focused) {
+        trackProject();
+        if (dashboards.size) {
+          void recording.then(() => sendHistory(dashboards));
+        }
+      }
+    }),
+    vscode.commands.registerCommand("soft-start.openDashboard", () => {
       const panel = vscode.window.createWebviewPanel(
         "softStart",
         "Soft Start",
@@ -66,38 +108,91 @@ export function activate(context: vscode.ExtensionContext) {
           ],
         },
       );
+      const { webview } = panel;
+      dashboards.add(webview);
 
-      panel.webview.html = getWebviewHtml(panel.webview, context.extensionUri);
-
-      const listener = panel.webview.onDidReceiveMessage(async (message: unknown) => {
-        if (actionInProgress || !isQuickActionMessage(message)) {
+      const listener = webview.onDidReceiveMessage(async (message: unknown) => {
+        if (!isDashboardMessage(message)) {
+          return;
+        }
+        if (message.type === "requestRecentProjects") {
+          trackProject();
+          await recording;
+          if (dashboards.has(webview)) {
+            sendHistory([webview]);
+          }
+          return;
+        }
+        if (actionInProgress) {
           return;
         }
         actionInProgress = true;
         try {
-          switch (message.action) {
-            case "newProject":
-              await createProject();
-              break;
-            case "openFolder":
-              await vscode.commands.executeCommand("workbench.action.files.openFolder");
-              break;
-            case "cloneRepository":
-              await vscode.commands.executeCommand("git.clone");
-              break;
+          await recording;
+          if (message.type === "quickAction") {
+            switch (message.action) {
+              case "newProject":
+                await createProject();
+                break;
+              case "openFolder":
+                await vscode.commands.executeCommand("workbench.action.files.openFolder");
+                break;
+              case "cloneRepository":
+                await vscode.commands.executeCommand("git.clone");
+                break;
+            }
+            return;
+          }
+
+          if (message.type === "removeRecentProject") {
+            await history.remove(message.id);
+            sendHistory(dashboards);
+            return;
+          }
+
+          let id: string | undefined;
+          if (message.type === "viewAllRecentProjects") {
+            const items = history.list().map(presentProject).map((item) => ({
+              id: item.id,
+              label: item.name,
+              description: item.path,
+            }));
+            const selected = await vscode.window.showQuickPick(items, {
+              title: "Recent projects",
+              placeHolder: "Select a project to open",
+              matchOnDescription: true,
+            });
+            id = selected?.id;
+          } else if (message.type === "openRecentProject") {
+            id = message.id;
+          }
+          if (id) {
+            const project = history.list().find((entry) => entry.id === id);
+            if (!project) {
+              vscode.window.showWarningMessage("This project is no longer in Soft Start’s recent history.");
+              sendHistory(dashboards);
+              return;
+            }
+            await openRecentProject(project);
+            // The destination normally records on activation. Update here too if
+            // VS Code keeps this host alive, such as when it focuses an existing window.
+            await history.record({ ...project, uri: vscode.Uri.from(project.uri) });
+            sendHistory(dashboards);
           }
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
-          void vscode.window.showErrorMessage(`Quick action failed. ${detail}`);
+          void vscode.window.showErrorMessage(`Soft Start: ${detail}`);
         } finally {
           actionInProgress = false;
         }
       });
-      panel.onDidDispose(() => listener.dispose());
-    },
+      panel.onDidDispose(() => {
+        dashboards.delete(webview);
+        listener.dispose();
+      });
+      webview.html = getWebviewHtml(webview, context.extensionUri);
+    }),
   );
-
-  context.subscriptions.push(disposable);
 }
 
 export function deactivate() {}

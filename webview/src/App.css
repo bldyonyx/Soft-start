@@ -169,6 +169,8 @@
 }
 
 .recent-list {
+  display: grid;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -189,6 +191,118 @@
 
 .recent-row .icon {
   color: var(--blue);
+}
+
+.recent-panel {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.recent-project-row {
+  gap: 6px;
+  padding: 4px 6px;
+}
+
+.recent-open,
+.recent-menu-trigger,
+.recent-menu-items button,
+.recent-view-all {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.recent-open:hover,
+.recent-menu-trigger:hover,
+.recent-menu-items button:hover,
+.recent-view-all:hover {
+  background: var(--hover-surface);
+}
+
+.recent-open {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 5px;
+  text-align: start;
+}
+
+.recent-project-info {
+  display: grid;
+  min-width: 0;
+}
+
+.recent-name,
+.recent-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: plaintext;
+}
+
+.recent-name {
+  color: var(--text);
+}
+
+.recent-path,
+.recent-time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.recent-time {
+  flex: none;
+  white-space: nowrap;
+}
+
+.recent-menu {
+  position: relative;
+  flex: none;
+}
+
+.recent-menu-trigger {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.recent-menu-trigger .icon {
+  color: var(--lavender);
+  stroke-width: 2.5;
+}
+
+.recent-menu-items {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: calc(100% + 4px);
+  inset-inline-end: 0;
+  width: max-content;
+  max-width: min(190px, calc(100vw - 62px));
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--elevated);
+  box-shadow: 0 4px 14px #0006;
+}
+
+.recent-menu-items button {
+  width: 100%;
+  padding: 5px 7px;
+  text-align: start;
+}
+
+.recent-view-all {
+  justify-self: start;
+  padding: 4px 6px;
+  color: var(--lavender);
+  font-size: 12px;
+  text-align: start;
 }
 
 .icon {

@@ -9,7 +9,7 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": ["onStartupFinished"],
   "extensionKind": ["workspace"],
   "main": "./out/extension.js",
   "contributes": {

@@ -1,10 +1,26 @@
 :root {
-  font-family: "Segoe UI", system-ui, sans-serif;
-  color: #f1ecf5;
-  background: #1d1b24;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
+  color-scheme: dark;
+  --background: #080709;
+  --surface: #0f0e11;
+  --title-bar: #151318;
+  --elevated: #19171d;
+  --panel-surface: color-mix(in srgb, var(--surface) 85%, transparent);
+  --inner-surface: color-mix(in srgb, var(--elevated) 94%, transparent);
+  --border: #29242f;
+  --hover-surface: #211d27;
+  --text: #edebf0;
+  --secondary: #a8a3ad;
+  --muted: #929096;
+  --lavender: #c5b3e5;
+  --blue: #a0d8f2;
+  --radius: 10px;
+  --symbol-font: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2",
+    "Noto Sans Symbols", "Noto Sans Egyptian Hieroglyphs", "Noto Music",
+    "Noto Sans Chakma", "Noto Sans New Tai Lue", "Segoe UI Emoji",
+    "Apple Color Emoji", "Noto Color Emoji", system-ui, sans-serif;
+  font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--background);
 }
 
 * {
@@ -13,21 +29,44 @@
 
 body {
   margin: 0;
-  min-width: 280px;
   min-height: 100vh;
+}
+
+#root {
+  isolation: isolate;
+}
+
+.dashboard-watermark {
+  position: fixed;
+  z-index: -1;
+  inset-block-start: 50%;
+  inset-inline-end: max(16px, calc((100% - 960px) / 2));
+  transform: translateY(-50%);
+  max-inline-size: calc(100% - 32px);
+  /* Preserve the footprint of the original 37 lines and 48-column size cap. */
+  block-size: min(79.92dvh, calc((100vw - 32px) * 37 / 48));
+  inline-size: auto;
+  opacity: 0.14;
+  pointer-events: none;
+  user-select: none;
+}
+
+@media (max-width: 520px) {
+  .dashboard-watermark {
+    display: none;
+  }
 }
 
 button {
   font: inherit;
 }
 
-button:focus-visible,
-a:focus-visible {
-  outline: 2px solid #a0d8f2;
+:focus-visible {
+  outline: 2px solid var(--lavender);
   outline-offset: 3px;
 }
 
 ::selection {
-  background: #c5b3e5;
-  color: #1d1b24;
+  background: var(--lavender);
+  color: var(--background);
 }

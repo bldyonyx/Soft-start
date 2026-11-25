@@ -27,6 +27,7 @@ export class SettingsConfiguration {
       decorativeSymbols: readValue("decorativeSymbols"),
       recentProjectsLimit: readValue("recentProjectsLimit"),
       projectsDirectory: readValue("projectsDirectory"),
+      startupBehavior: readValue("startupBehavior"),
     };
   }
 
@@ -61,7 +62,7 @@ async function confirmRestore(): Promise<boolean> {
   const restore = "Restore Defaults";
   return await vscode.window.showWarningMessage(
     "Restore Soft Start’s appearance and dashboard defaults?",
-    { modal: true, detail: "The projects directory, recent projects, and pinned projects will be kept." },
+    { modal: true, detail: "The projects directory, recent projects, pinned projects, and startup preferences will be kept." },
     restore,
   ) === restore;
 }
@@ -71,7 +72,7 @@ export function onSettingsChanged(
   subscribe: typeof vscode.workspace.onDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration,
 ): vscode.Disposable {
   return subscribe((event) => {
-    if (event.affectsConfiguration(section)) {
+    if (event.affectsConfiguration(section) || event.affectsConfiguration("workbench.startupEditor")) {
       notify();
     }
   });

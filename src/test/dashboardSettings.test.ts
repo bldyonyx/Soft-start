@@ -49,7 +49,7 @@ suite("Dashboard settings", () => {
     const changes = {
       backgroundColor: "#ffffff", accentColor: "#131b2a", panelOpacity: 0, artworkVisible: false,
       artworkOpacity: 100, welcomeMessage: "<b>hello</b>", headerKaomoji: "hello",
-      decorativeSymbols: false, recentProjectsLimit: 10, projectsDirectory: process.cwd(),
+      decorativeSymbols: false, recentProjectsLimit: 10, projectsDirectory: process.cwd(), startupBehavior: "always" as const,
     };
     await settings.update(changes);
     assert.deepEqual(new SettingsConfiguration(() => configuration).read(), changes);
@@ -178,7 +178,7 @@ suite("Dashboard settings", () => {
     const project = { uri: vscode.Uri.file(process.cwd()), name: "Test project", kind: "folder" as const };
     await history.record(project);
     await pinned.pin(project);
-    await settings.update({ welcomeMessage: "Changed", projectsDirectory: process.cwd() });
+    await settings.update({ welcomeMessage: "Changed", projectsDirectory: process.cwd(), startupBehavior: "always" });
     values.set("editor.fontSize", 16);
     assert.equal(await settings.restoreDefaults(async () => false), false);
     assert.equal(settings.read().welcomeMessage, "Changed");
@@ -186,7 +186,7 @@ suite("Dashboard settings", () => {
     const recentBefore = values.get(recentProjectsKey);
     const pinnedBefore = values.get(pinnedProjectsKey);
     assert.equal(await settings.restoreDefaults(async () => true), true);
-    assert.deepEqual(settings.read(), { ...defaultSettings, projectsDirectory: process.cwd() });
+    assert.deepEqual(settings.read(), { ...defaultSettings, projectsDirectory: process.cwd(), startupBehavior: "always" });
     assert.equal(values.get(recentProjectsKey), recentBefore);
     assert.equal(values.get(pinnedProjectsKey), pinnedBefore);
     assert.equal(values.get("editor.fontSize"), 16);

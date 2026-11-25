@@ -15,9 +15,10 @@ const hostScript = `
     const defaults = {
       backgroundColor: '#080709', accentColor: '#c5b3e5', panelOpacity: 85, artworkVisible: true,
       artworkOpacity: 14, welcomeMessage: 'Ready when you are', headerKaomoji: '૮ ᴗ͈ ˕ ✙╿ྀི꒱',
-      decorativeSymbols: true, recentProjectsLimit: 4, projectsDirectory: ''
+      decorativeSymbols: true, recentProjectsLimit: 4, projectsDirectory: '', startupBehavior: 'never'
     };
     let saved = {...defaults, panelOpacity: 80};
+    let welcome = 'available';
     window.requests = [];
     window.reply = false;
     window.failRead = false;
@@ -25,15 +26,23 @@ const hostScript = `
       requests.push(request);
       if (request.type === 'requestSettings' && reply) {
         window.postMessage(failRead ? {type:'settingsLoadError', error:'Configuration unavailable'} :
-          {type:'settings', settings:saved}, '*');
+          {type:'settings', settings:saved, welcome}, '*');
       } else if (request.type === 'saveSettings') {
         saved = {...saved, ...request.changes};
-        window.postMessage({type:'settingsResult',settings:saved,status:'Settings saved.'}, '*');
+        window.postMessage({type:'settingsResult',settings:saved,welcome,status:'Settings saved.'}, '*');
       } else if (request.type === 'browseProjectsDirectory') {
-        window.postMessage({type:'settingsResult',settings:saved,directory:'/home/test/projects'}, '*');
+        window.postMessage({type:'settingsResult',settings:saved,welcome,directory:'/home/test/projects'}, '*');
+      } else if (request.type === 'enableWelcomeReplacement') {
+        welcome = 'active';
+        saved = {...saved, startupBehavior:'emptyWindow'};
+        window.postMessage({type:'settingsResult',settings:saved,welcome,status:'Soft Start is set as the startup page.'}, '*');
+      } else if (request.type === 'restoreWelcomeReplacement') {
+        welcome = 'available';
+        saved = {...saved, startupBehavior:'never'};
+        window.postMessage({type:'settingsResult',settings:saved,welcome,status:'Original VS Code startup preference restored.'}, '*');
       } else if (request.type === 'restoreSettings') {
-        saved = {...defaults,projectsDirectory:saved.projectsDirectory};
-        window.postMessage({type:'settingsResult',settings:saved,status:'Defaults restored.'}, '*');
+        saved = {...defaults,projectsDirectory:saved.projectsDirectory,startupBehavior:saved.startupBehavior};
+        window.postMessage({type:'settingsResult',settings:saved,welcome,status:'Defaults restored.'}, '*');
       }
     } });
     window.token = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -51,7 +60,7 @@ const server = createServer(async (request, response) => {
   try {
     let body = await readFile(join(media, path));
     if (path === "/index.html") {
-      const hostMarker = url.searchParams.has("legacy") ? "" : '<meta name="soft-start-settings-host" content="1">';
+      const hostMarker = url.searchParams.has("legacy") ? "" : '<meta name="soft-start-settings-host" content="2">';
       body = body.toString().replace("<head>", `<head>${hostMarker}<script nonce="test-host">${hostScript}</script>`)
         .replace(/<script type=/g, '<script nonce="test-host" type=');
     }
@@ -249,6 +258,26 @@ try {
   await waitFor("document.querySelector('[role=status]')?.textContent === 'Defaults restored.'");
   assert.equal(await evaluate("token('--background')"), "#080709");
   assert.match(await evaluate("document.querySelector('.settings-directory').textContent"), /\/home\/test\/edited/);
+  const startupSelect = "fieldset:nth-of-type(4) select";
+  const replaceWelcome = "fieldset:nth-of-type(4) .settings-actions button:first-child";
+  const restoreWelcome = "fieldset:nth-of-type(4) .settings-actions button:last-child";
+  assert.equal(await evaluate(`document.querySelector('${startupSelect}').value`), "never");
+  await click(replaceWelcome);
+  await waitFor(`document.querySelector('${startupSelect}').value === 'emptyWindow'`);
+  await evaluate(`(() => {
+    const select = document.querySelector('${startupSelect}');
+    select.value = 'always';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await click("button[type=submit]");
+  await waitFor("document.querySelector('[role=status]')?.textContent === 'Settings saved.'");
+  assert.ok(await evaluate("requests.some(request => request.changes?.startupBehavior === 'always')"));
+  await click(".settings-view form > .settings-actions button:last-child");
+  await waitFor("document.querySelector('[role=status]')?.textContent === 'Defaults restored.'");
+  assert.equal(await evaluate(`document.querySelector('${startupSelect}').value`), "always");
+  await click(restoreWelcome);
+  await waitFor(`document.querySelector('${startupSelect}').value === 'never'`);
+
   const previewArt = ".settings-preview-artwork";
   const dashboardArt = ".dashboard-watermark";
   const backgroundInput = ".settings-field input[type=color]";

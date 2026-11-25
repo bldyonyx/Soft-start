@@ -502,6 +502,7 @@
 }
 
 .settings-view input,
+.settings-view select,
 .settings-view button {
   max-inline-size: 100%;
   accent-color: var(--lavender);
@@ -509,6 +510,7 @@
 }
 
 .settings-view input[type="text"],
+.settings-view select,
 .settings-view button {
   min-inline-size: 0;
   padding: 6px 9px;

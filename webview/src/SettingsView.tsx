@@ -1,3 +1,4 @@
+import { isStartupBehavior } from "../../src/startupPolicy";
 import type { ReactNode } from "react";
 import { defaultSettings, kaomojiMaxLength, recentLimits, welcomeMaxLength } from "../../src/dashboardSettings";
 import type { useDashboardSettings } from "./useDashboardSettings";
@@ -126,6 +127,30 @@ export function SettingsView({ settings, back, preview }: {
           <div className="settings-actions">
             <button type="button" disabled={!settings.ready} onClick={settings.browse}>Browse…</button>
             <button type="button" disabled={!current.projectsDirectory} onClick={() => edit("projectsDirectory", "")}>Clear</button>
+          </div>
+        </fieldset>
+
+        <fieldset disabled={!settings.ready || settings.pending || !settings.welcome}>
+          <legend>Startup</legend>
+          <p>Replacing the Welcome page sets VS Code’s Startup Editor to None.</p>
+          <label>
+            Startup behavior
+            <select value={current.startupBehavior} aria-describedby="startup-behavior-help" onChange={(event) => {
+              const value = event.currentTarget.value;
+              if (isStartupBehavior(value)) edit("startupBehavior", value);
+            }}>
+              <option value="emptyWindow">Empty windows only</option>
+              <option value="always">Always</option>
+              <option value="never">Never</option>
+            </select>
+          </label>
+          <p id="startup-behavior-help">Empty windows only skips restored tabs. Always includes workspaces and preserves focus on open editors. Never opens Soft Start only on demand. Automatic opening requires VS Code’s Startup Editor to be None.</p>
+          {settings.welcome === "changed" && <p>A VS Code preference is overriding the startup replacement.</p>}
+          {settings.welcome === "otherHost" && <p>Open the original VS Code host to restore its saved startup preference.</p>}
+          <div className="settings-actions">
+            <button type="button" disabled={settings.welcome !== "available"} onClick={settings.enableWelcome}>Replace VS Code Welcome page</button>
+            <button type="button" disabled={settings.welcome !== "active" && settings.welcome !== "changed"}
+              onClick={settings.restoreWelcome}>Restore original VS Code startup page</button>
           </div>
         </fieldset>
 

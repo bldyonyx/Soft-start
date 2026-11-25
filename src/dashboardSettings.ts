@@ -1,3 +1,5 @@
+import { isStartupBehavior, type StartupBehavior } from "./startupPolicy";
+
 export const defaultSettings = {
   backgroundColor: "#080709",
   accentColor: "#c5b3e5",
@@ -9,6 +11,7 @@ export const defaultSettings = {
   decorativeSymbols: true,
   recentProjectsLimit: 4,
   projectsDirectory: "",
+  startupBehavior: "never" as StartupBehavior,
 };
 
 export type DashboardSettings = typeof defaultSettings;
@@ -20,7 +23,7 @@ export const kaomojiMaxLength = 80;
 export const recentLimits = { min: 1, max: 10 };
 
 export const settingKeys = Object.keys(defaultSettings) as SettingKey[];
-export const customizationKeys = settingKeys.filter((key) => key !== "projectsDirectory");
+export const customizationKeys = settingKeys.filter((key) => key !== "projectsDirectory" && key !== "startupBehavior");
 
 function integerIn(value: unknown, min: number, max: number) {
   return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
@@ -43,6 +46,8 @@ export function isSettingValue<K extends SettingKey>(key: K, value: unknown): va
     case "headerKaomoji":
       return typeof value === "string" && !/[\r\n\0]/u.test(value) &&
         value.length <= (key === "welcomeMessage" ? welcomeMaxLength : kaomojiMaxLength);
+    case "startupBehavior":
+      return isStartupBehavior(value);
     case "projectsDirectory":
       return typeof value === "string" && !/[\r\n\0]/u.test(value);
     default:

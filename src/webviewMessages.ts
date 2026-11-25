@@ -1,3 +1,4 @@
+import { welcomeStates, type WelcomeState } from "./startupPolicy";
 import { isSettingsPatch, isSettingValue, settingKeys, type DashboardSettings, type SettingsPatch } from "./dashboardSettings";
 import { isQuickActionMessage, type QuickActionMessage } from "./quickActions";
 
@@ -12,16 +13,18 @@ export type ProjectItem = {
 export type RecentProjectItem = ProjectItem & { lastOpened: number };
 
 export const settingsHostMeta = "soft-start-settings-host";
+export const settingsHostVersion = "2";
 
 export type SettingsRequest =
   | { type: "requestSettings" }
   | { type: "saveSettings"; changes: SettingsPatch }
   | { type: "restoreSettings" }
-  | { type: "browseProjectsDirectory" };
+  | { type: "browseProjectsDirectory" }
+  | { type: "enableWelcomeReplacement" | "restoreWelcomeReplacement" };
 
 export type SettingsMessage =
-  | { type: "settings"; settings: DashboardSettings }
-  | { type: "settingsResult"; settings: DashboardSettings; error?: string; directory?: string; status?: string }
+  | { type: "settings"; settings: DashboardSettings; welcome?: WelcomeState }
+  | { type: "settingsResult"; settings: DashboardSettings; welcome?: WelcomeState; error?: string; directory?: string; status?: string }
   | { type: "settingsLoadError"; error: string };
 
 export type DashboardMessage =
@@ -52,6 +55,8 @@ export function isDashboardMessage(value: unknown): value is DashboardMessage {
     case "requestSettings":
     case "restoreSettings":
     case "browseProjectsDirectory":
+    case "enableWelcomeReplacement":
+    case "restoreWelcomeReplacement":
       return true;
     case "saveSettings":
       return "changes" in value && isSettingsPatch(value.changes);
@@ -117,6 +122,7 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
   }
   const settings = value.settings as Record<string, unknown>;
   return settingKeys.every((key) => Object.hasOwn(settings, key) && isSettingValue(key, settings[key])) &&
+    (!("welcome" in value) || value.welcome === undefined || welcomeStates.some((state) => state === value.welcome)) &&
     (!("error" in value) || value.error === undefined || typeof value.error === "string") &&
     (!("directory" in value) || value.directory === undefined || isSettingValue("projectsDirectory", value.directory)) &&
     (!("status" in value) || value.status === undefined || typeof value.status === "string");

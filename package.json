@@ -82,6 +82,18 @@
           "minimum": 1,
           "maximum": 10
         },
+        "softStart.startupBehavior": {
+          "type": "string",
+          "enum": ["emptyWindow", "always", "never"],
+          "enumDescriptions": [
+            "Open in empty windows with no restored editor tabs.",
+            "Open at startup in all windows while preserving focus in restored editors.",
+            "Open only with the Soft Start: Open Dashboard command."
+          ],
+          "default": "never",
+          "scope": "application",
+          "description": "When to open Soft Start automatically. Automatic opening requires the effective VS Code Startup Editor to be None."
+        },
         "softStart.projectsDirectory": {
           "type": "string",
           "default": "",

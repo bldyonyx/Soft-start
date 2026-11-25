@@ -7,7 +7,11 @@
 			"label": "Soft Start: Build Extension and Webview",
 			"type": "npm",
 			"script": "vscode:prepublish",
-			"problemMatcher": "$tsc"
+			"problemMatcher": "$tsc",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
 		},
 		{
 			"type": "npm",
@@ -16,10 +20,6 @@
 			"isBackground": true,
 			"presentation": {
 				"reveal": "never"
-			},
-			"group": {
-				"kind": "build",
-				"isDefault": true
 			}
 		}
 	]

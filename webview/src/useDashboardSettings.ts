@@ -1,12 +1,14 @@
+import type { WelcomeState } from "../../src/startupPolicy";
 import { useEffect, useRef, useState } from "react";
 import { defaultSettings, type DashboardSettings, type SettingKey, type SettingsPatch } from "../../src/dashboardSettings";
-import { isSettingsMessage, settingsHostMeta, type SettingsRequest } from "../../src/webviewMessages";
+import { isSettingsMessage, settingsHostMeta, settingsHostVersion, type SettingsRequest } from "../../src/webviewMessages";
 
 type Post = (request: SettingsRequest) => void;
 
 export function useDashboardSettings(post: Post | undefined) {
   const [saved, setSaved] = useState(defaultSettings);
   const [draft, setDraft] = useState<SettingsPatch>({});
+  const [welcome, setWelcome] = useState<WelcomeState>();
   const [ready, setReady] = useState(false);
   const [syncError, setSyncError] = useState<string>();
   const [syncAttempt, setSyncAttempt] = useState(0);
@@ -14,7 +16,7 @@ export function useDashboardSettings(post: Post | undefined) {
   const operation = useRef<SettingsRequest["type"] | undefined>(undefined);
   const [feedback, setFeedback] = useState<{ text: string; error?: boolean }>();
 
-  const hostSupportsSettings = Boolean(post && document.querySelector(`meta[name="${settingsHostMeta}"][content="1"]`));
+  const hostSupportsSettings = Boolean(post && document.querySelector(`meta[name="${settingsHostMeta}"][content="${settingsHostVersion}"]`));
 
   useEffect(() => {
     if (!post || !hostSupportsSettings) {
@@ -46,6 +48,7 @@ export function useDashboardSettings(post: Post | undefined) {
       }
       setSyncError(undefined);
       setSaved(data.settings);
+      setWelcome(data.welcome);
       setReady(true);
       if (data.type === "settingsResult") {
         const completed = operation.current;
@@ -55,6 +58,13 @@ export function useDashboardSettings(post: Post | undefined) {
           setDraft(completed === "restoreSettings" ? (current) => (
             current.projectsDirectory === undefined ? {} : { projectsDirectory: current.projectsDirectory }
           ) : {});
+        }
+        if ((completed === "enableWelcomeReplacement" || completed === "restoreWelcomeReplacement") && data.status) {
+          setDraft((current) => {
+            const next = { ...current };
+            delete next.startupBehavior;
+            return next;
+          });
         }
         if (data.directory !== undefined) {
           setDraft((current) => ({ ...current, projectsDirectory: data.directory }));
@@ -91,6 +101,7 @@ export function useDashboardSettings(post: Post | undefined) {
 
   return {
     saved,
+    welcome,
     preview: { ...saved, ...draft },
     dirty: Object.keys(changes).length > 0,
     pending,
@@ -107,5 +118,7 @@ export function useDashboardSettings(post: Post | undefined) {
     save: () => run({ type: "saveSettings", changes }),
     restore: () => run({ type: "restoreSettings" }),
     browse: () => run({ type: "browseProjectsDirectory" }),
+    enableWelcome: () => run({ type: "enableWelcomeReplacement" }),
+    restoreWelcome: () => run({ type: "restoreWelcomeReplacement" }),
   };
 }

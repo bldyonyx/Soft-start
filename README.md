@@ -18,6 +18,22 @@ Open the gear in the dashboard header. Appearance and dashboard edits update the
 
 Appearance and dashboard preferences are application-scoped Soft Start user settings. The Projects section uses the machine-scoped `softStart.projectsDirectory` setting. In a WSL or other remote window, VS Code writes this setting to the remote host's user settings. Browse selects a folder for the draft. Save applies it to New Project, and saving an empty value returns New Project to prompting for a folder. Settings changes made in VS Code also update an open dashboard.
 
+## Use Soft Start at startup
+
+The first time Soft Start activates, it offers **Set as startup page** or **Not now**. Either choice dismisses onboarding for this profile. You can set up the replacement later under **Settings → Startup** in Soft Start. Confirming replacement saves the original VS Code Startup Editor user preference, sets `workbench.startupEditor` to `none`, and selects **Empty windows only**. The new behavior applies on the next startup.
+
+- **Empty windows only** opens Soft Start in a window without a folder, workspace file, or restored editor tab.
+- **Always** also opens it in folder and multi-root workspaces, requesting that VS Code preserve focus when tabs are already open.
+- **Never** turns off automatic opening. **Soft Start: Open Dashboard** is available in every mode.
+
+Soft Start uses VS Code's configured startup editor and opens its own dashboard after startup. If another workspace or user preference sets the effective Startup Editor to something other than `none`, Soft Start skips automatic opening. It leaves restored editors, including a manually opened or restored Welcome tab, in VS Code's control. Closing the dashboard keeps it closed for the current extension-host session.
+
+The Startup Editor is changed via VS Code's **Global** user configuration target, including in WSL. This can affect other windows that inherit the same user preference. VS Code resolves whether a Remote user setting or the local user setting supplies the preference; Soft Start leaves workspace and workspace-folder settings alone. Restore from the same VS Code profile and local or remote host where you enabled replacement.
+
+**Restore original VS Code startup page** disables automatic opening and restores the saved user value. A previously inherited value is restored by removing the override. If the native user preference changed independently, choose **Keep current setting** or explicitly confirm restoration. **Restore Defaults** in Soft Start leaves startup preferences and the restore record in place.
+
+Before uninstalling, use **Restore original VS Code startup page**. After uninstalling, open VS Code Settings and search for **Workbench: Startup Editor**. In the applicable User or Remote settings tab, reset the setting if it was inherited, or select your previous value. Choose **Welcome Page** to show the standard Welcome editor.
+
 ## Build and package
 
 From a clean checkout, install the extension and dashboard dependencies from the repository root:
@@ -30,4 +46,4 @@ npm --prefix webview ci
 Run `npm run vscode:prepublish` to build the dashboard into `media/` and compile the extension into `out/`.
 Run `npx @vscode/vsce package --no-dependencies` to create a local VSIX. VSCE runs the same build automatically and includes the generated dashboard assets. The extension has no runtime npm dependencies.
 
-For local development, F5 builds the extension and dashboard together before opening the Extension Development Host. Stop and restart the debug session after changing the host or its webview protocol so the new dashboard connects to the matching host build. Run `npm --prefix webview run dev` for the standalone dashboard preview.
+For local development, F5 builds the extension and dashboard together before opening the Extension Development Host. Stop and restart the debug session after changing the host or its webview protocol so the new dashboard connects to the matching host build. The foreground build is also the default VS Code build task. Use `npm run watch` separately for TypeScript watch mode and `npm --prefix webview run dev` for the standalone dashboard preview.

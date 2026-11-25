@@ -5,9 +5,11 @@ import { createProject } from "./newProject";
 import { presentProject as presentRecentProject, RecentProjects } from "./recentProjects";
 import { currentProject, openProject, presentProject, projectId } from "./projects";
 import { PinnedProjects, promptPinnedProjectName, selectPinnedProject } from "./pinnedProjects";
+import { DashboardPanel } from "./dashboardPanel";
+import { Startup, startupScope } from "./startup";
 import { onSettingsChanged } from "./settingsConfiguration";
 import { SettingsWebview } from "./settingsWebview";
-import { isDashboardMessage, settingsHostMeta, type PinnedProjectsMessage, type RecentProjectsMessage } from "./webviewMessages";
+import { isDashboardMessage, settingsHostMeta, settingsHostVersion, type PinnedProjectsMessage, type RecentProjectsMessage } from "./webviewMessages";
 
 function getNonce(): string {
   return randomBytes(16).toString("base64");
@@ -50,7 +52,7 @@ function getWebviewHtml(
     "<head>",
     `<head>
     <meta http-equiv="Content-Security-Policy" content="${csp}">
-    <meta name="${settingsHostMeta}" content="1">`,
+    <meta name="${settingsHostMeta}" content="${settingsHostVersion}">`,
   );
 
   return html;
@@ -63,7 +65,8 @@ function reportSettingsDeliveryError(error: unknown) {
 export function activate(context: vscode.ExtensionContext) {
   const history = new RecentProjects(context.globalState);
   const pins = new PinnedProjects(context.globalState);
-  const settings = new SettingsWebview();
+  const startup = new Startup(context.globalState, startupScope(context));
+  const settings = new SettingsWebview(undefined, undefined, undefined, startup);
   const dashboards = new Set<vscode.Webview>();
   let actionInProgress = false;
   let observedId: string | undefined;
@@ -106,13 +109,171 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }
 
+  function publishSettings() {
+    for (const webview of dashboards) {
+      void settings.publish(webview).catch(reportSettingsDeliveryError);
+    }
+  }
+
+  const dashboard = new DashboardPanel<vscode.WebviewPanel>((preserveFocus) => {
+    const panel = vscode.window.createWebviewPanel(
+      "softStart",
+      "Soft Start",
+      { viewColumn: vscode.ViewColumn.One, preserveFocus },
+      {
+        enableScripts: true,
+        localResourceRoots: [
+          vscode.Uri.joinPath(context.extensionUri, "media"),
+        ],
+      },
+    );
+    const { webview } = panel;
+    dashboards.add(webview);
+
+    const listener = webview.onDidReceiveMessage(async (message: unknown) => {
+      if (!isDashboardMessage(message)) {
+        return;
+      }
+      if (message.type === "requestSettings" || message.type === "saveSettings" ||
+          message.type === "restoreSettings" || message.type === "browseProjectsDirectory" ||
+          message.type === "enableWelcomeReplacement" || message.type === "restoreWelcomeReplacement") {
+        await settings.handle(message, webview).catch(reportSettingsDeliveryError);
+        return;
+      }
+      if (message.type === "requestRecentProjects") {
+        trackProject();
+        await recording;
+        if (dashboards.has(webview)) {
+          sendHistory([webview]);
+          sendPins([webview]);
+        }
+        return;
+      }
+      if (actionInProgress) {
+        return;
+      }
+      actionInProgress = true;
+      try {
+        await recording;
+        if (message.type === "quickAction") {
+          switch (message.action) {
+            case "newProject":
+              await createProject();
+              break;
+            case "openFolder":
+              await vscode.commands.executeCommand("workbench.action.files.openFolder");
+              break;
+            case "cloneRepository":
+              await vscode.commands.executeCommand("git.clone");
+              break;
+          }
+          return;
+        }
+
+        if (message.type === "removeRecentProject") {
+          await history.remove(message.id);
+          sendHistory(dashboards);
+          return;
+        }
+
+        switch (message.type) {
+          case "addPinnedProject": {
+            const project = await selectPinnedProject();
+            if (project) {
+              await pins.pin(project);
+              sendPins(dashboards);
+            }
+            return;
+          }
+          case "pinRecentProject": {
+            const project = history.list().find(({ id }) => id === message.id);
+            if (!project) {
+              throw new Error("This project is no longer in Soft Start’s recent history.");
+            }
+            await pins.pin({ ...project, uri: vscode.Uri.from(project.uri) });
+            sendPins(dashboards);
+            return;
+          }
+          case "unpinProject":
+            await pins.unpin(message.id);
+            sendPins(dashboards);
+            return;
+          case "reorderPinnedProjects":
+            await pins.reorder(message.ids);
+            sendPins(dashboards);
+            return;
+          case "renamePinnedProject": {
+            const project = pins.list().find(({ id }) => id === message.id);
+            if (!project) {
+              throw new Error("This project is no longer pinned.");
+            }
+            const name = await promptPinnedProjectName(project);
+            if (name !== undefined) {
+              await pins.rename(project.id, name);
+              sendPins(dashboards);
+            }
+            return;
+          }
+        }
+
+        let id: string | undefined;
+        if (message.type === "viewAllRecentProjects") {
+          const items = history.list().map(presentRecentProject).map((item) => ({
+            id: item.id,
+            label: item.name,
+            description: item.path,
+          }));
+          const selected = await vscode.window.showQuickPick(items, {
+            title: "Recent projects",
+            placeHolder: "Select a project to open",
+            matchOnDescription: true,
+          });
+          id = selected?.id;
+        } else if (message.type === "openRecentProject" || message.type === "openPinnedProject") {
+          id = message.id;
+        }
+        if (id) {
+          const fromPins = message.type === "openPinnedProject";
+          const project = (fromPins ? pins.list() : history.list()).find((entry) => entry.id === id);
+          if (!project) {
+            void vscode.window.showWarningMessage(fromPins ? "This project is no longer pinned." :
+              "This project is no longer in Soft Start’s recent history.");
+            sendPins(dashboards);
+            sendHistory(dashboards);
+            return;
+          }
+          await openProject(project);
+          // The destination normally records on activation. Update here too if
+          // VS Code keeps this host alive, such as when it focuses an existing window.
+          await history.record({ ...project, uri: vscode.Uri.from(project.uri) });
+          sendHistory(dashboards);
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        void vscode.window.showErrorMessage(`Soft Start: ${detail}`);
+        sendHistory(dashboards);
+        sendPins(dashboards);
+      } finally {
+        actionInProgress = false;
+      }
+    });
+    panel.onDidDispose(() => {
+      dashboard.closed(panel);
+      dashboards.delete(webview);
+      listener.dispose();
+    });
+    try {
+      webview.html = getWebviewHtml(webview, context.extensionUri);
+      return panel;
+    } catch (error) {
+      panel.dispose();
+      throw error;
+    }
+  });
+
   trackProject();
   context.subscriptions.push(
-    onSettingsChanged(() => {
-      for (const webview of dashboards) {
-        void settings.publish(webview).catch(reportSettingsDeliveryError);
-      }
-    }),
+    onSettingsChanged(publishSettings),
     vscode.workspace.onDidChangeWorkspaceFolders(trackProject),
     vscode.window.onDidChangeWindowState((state) => {
       if (state.focused) {
@@ -125,154 +286,29 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
     }),
-    vscode.commands.registerCommand("soft-start.openDashboard", () => {
-      const panel = vscode.window.createWebviewPanel(
-        "softStart",
-        "Soft Start",
-        vscode.ViewColumn.One,
-        {
-          enableScripts: true,
-          localResourceRoots: [
-            vscode.Uri.joinPath(context.extensionUri, "media"),
-          ],
-        },
-      );
-      const { webview } = panel;
-      dashboards.add(webview);
-
-      const listener = webview.onDidReceiveMessage(async (message: unknown) => {
-        if (!isDashboardMessage(message)) {
-          return;
-        }
-        if (message.type === "requestSettings" || message.type === "saveSettings" ||
-            message.type === "restoreSettings" || message.type === "browseProjectsDirectory") {
-          await settings.handle(message, webview).catch(reportSettingsDeliveryError);
-          return;
-        }
-        if (message.type === "requestRecentProjects") {
-          trackProject();
-          await recording;
-          if (dashboards.has(webview)) {
-            sendHistory([webview]);
-            sendPins([webview]);
-          }
-          return;
-        }
-        if (actionInProgress) {
-          return;
-        }
-        actionInProgress = true;
-        try {
-          await recording;
-          if (message.type === "quickAction") {
-            switch (message.action) {
-              case "newProject":
-                await createProject();
-                break;
-              case "openFolder":
-                await vscode.commands.executeCommand("workbench.action.files.openFolder");
-                break;
-              case "cloneRepository":
-                await vscode.commands.executeCommand("git.clone");
-                break;
-            }
-            return;
-          }
-
-          if (message.type === "removeRecentProject") {
-            await history.remove(message.id);
-            sendHistory(dashboards);
-            return;
-          }
-
-          switch (message.type) {
-            case "addPinnedProject": {
-              const project = await selectPinnedProject();
-              if (project) {
-                await pins.pin(project);
-                sendPins(dashboards);
-              }
-              return;
-            }
-            case "pinRecentProject": {
-              const project = history.list().find(({ id }) => id === message.id);
-              if (!project) {
-                throw new Error("This project is no longer in Soft Start’s recent history.");
-              }
-              await pins.pin({ ...project, uri: vscode.Uri.from(project.uri) });
-              sendPins(dashboards);
-              return;
-            }
-            case "unpinProject":
-              await pins.unpin(message.id);
-              sendPins(dashboards);
-              return;
-            case "reorderPinnedProjects":
-              await pins.reorder(message.ids);
-              sendPins(dashboards);
-              return;
-            case "renamePinnedProject": {
-              const project = pins.list().find(({ id }) => id === message.id);
-              if (!project) {
-                throw new Error("This project is no longer pinned.");
-              }
-              const name = await promptPinnedProjectName(project);
-              if (name !== undefined) {
-                await pins.rename(project.id, name);
-                sendPins(dashboards);
-              }
-              return;
-            }
-          }
-
-          let id: string | undefined;
-          if (message.type === "viewAllRecentProjects") {
-            const items = history.list().map(presentRecentProject).map((item) => ({
-              id: item.id,
-              label: item.name,
-              description: item.path,
-            }));
-            const selected = await vscode.window.showQuickPick(items, {
-              title: "Recent projects",
-              placeHolder: "Select a project to open",
-              matchOnDescription: true,
-            });
-            id = selected?.id;
-          } else if (message.type === "openRecentProject" || message.type === "openPinnedProject") {
-            id = message.id;
-          }
-          if (id) {
-            const fromPins = message.type === "openPinnedProject";
-            const project = (fromPins ? pins.list() : history.list()).find((entry) => entry.id === id);
-            if (!project) {
-              void vscode.window.showWarningMessage(fromPins ? "This project is no longer pinned." :
-                "This project is no longer in Soft Start’s recent history.");
-              sendPins(dashboards);
-              sendHistory(dashboards);
-              return;
-            }
-            await openProject(project);
-            // The destination normally records on activation. Update here too if
-            // VS Code keeps this host alive, such as when it focuses an existing window.
-            await history.record({ ...project, uri: vscode.Uri.from(project.uri) });
-            sendHistory(dashboards);
-          }
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          void vscode.window.showErrorMessage(`Soft Start: ${detail}`);
-          sendHistory(dashboards);
-          sendPins(dashboards);
-        } finally {
-          actionInProgress = false;
-        }
-      });
-      panel.onDidDispose(() => {
-        dashboards.delete(webview);
-        listener.dispose();
-      });
-      webview.html = getWebviewHtml(webview, context.extensionUri);
-    }),
+    vscode.commands.registerCommand("soft-start.openDashboard", () => dashboard.open()),
   );
+
+
+
+  if (context.extensionMode !== vscode.ExtensionMode.Test) {
+    // Startup activation happens once per host. Closing a panel or changing settings never triggers opening.
+    try {
+      const hasTabs = vscode.window.tabGroups.all.some(({ tabs }) => tabs.length > 0);
+      dashboard.openAtStartup(() => startup.shouldOpen({
+        hasWorkspaceFile: Boolean(vscode.workspace.workspaceFile),
+        folderCount: vscode.workspace.workspaceFolders?.length ?? 0,
+        hasTabs,
+      }), hasTabs);
+    } catch (error) {
+      console.error("Soft Start could not open the startup dashboard.", error);
+    }
+    void startup.onboard().then(publishSettings).catch((error: unknown) => {
+      console.error("Soft Start could not set up the startup page.", error);
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Soft Start could not set up the startup page. ${detail}`);
+    });
+  }
 }
 
 export function deactivate() {}

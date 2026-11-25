@@ -1,19 +1,24 @@
 import type { ReactNode } from "react";
+import type { QuickActionMessage } from "../../src/quickActions";
 import "./App.css";
+
+declare function acquireVsCodeApi(): { postMessage: (message: QuickActionMessage) => void };
+
+const vscode = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : undefined;
 
 const iconPaths = {
   pin: "M8 3h8l-1 5 3 3v2H6v-2l3-3-1-5Zm4 10v7",
   clock: "M12 8v4l2.5 1.5M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z",
-  file: "M8 21H6V3h8l4 4v4M14 3v5h4m-4 6v6m-3-3h6",
+  folderPlus: "M3 6h7l2 2h9v11H3V6Zm9 5v5m-2.5-2.5h5",
   folder: "M3 6h7l2 2h9v11H3V6Z",
   branch: "M7 9v7m10-7a5 5 0 0 1-5 5H7m2-7a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm10 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM9 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z",
 } as const;
 
 const quickActions = [
-  { label: "New file", icon: "file" },
-  { label: "Open folder", icon: "folder" },
-  { label: "Clone repository", icon: "branch" },
-] as const;
+  { label: "New project", icon: "folderPlus", action: "newProject" },
+  { label: "Open folder", icon: "folder", action: "openFolder" },
+  { label: "Clone repository", icon: "branch", action: "cloneRepository" },
+] satisfies { label: string; icon: keyof typeof iconPaths; action: QuickActionMessage["action"] }[];
 
 function Icon({ name }: { name: keyof typeof iconPaths }) {
   return (
@@ -98,10 +103,15 @@ function App() {
       </div>
 
       <DashboardSection id="quick-actions" title="Quick actions" accent="ʚ⠀ິɞ">
-        <p className="action-status" id="action-status">Unavailable for now</p>
-        <div className="quick-actions" role="group" aria-labelledby="quick-actions" aria-describedby="action-status">
-          {quickActions.map(({ label, icon }) => (
-            <button type="button" className="utility-tile" key={label} disabled>
+        <div className="quick-actions" role="group" aria-labelledby="quick-actions">
+          {quickActions.map(({ label, icon, action }) => (
+            <button
+              type="button"
+              className="utility-tile"
+              key={action}
+              disabled={!vscode}
+              onClick={() => vscode?.postMessage({ type: "quickAction", action })}
+            >
               <span className="shortcut-icon"><Icon name={icon} /></span>
               <span>{label}</span>
             </button>

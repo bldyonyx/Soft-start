@@ -10,8 +10,20 @@
     "Other"
   ],
   "activationEvents": [],
+  "extensionKind": ["workspace"],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Soft Start",
+      "properties": {
+        "softStart.projectsDirectory": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Absolute path to the parent folder for new projects on the active VS Code host. Leave empty to choose a parent folder when creating a project."
+        }
+      }
+    },
     "commands": [
       {
         "command": "soft-start.openDashboard",

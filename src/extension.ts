@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { createProject } from "./newProject";
+import { isQuickActionMessage } from "./quickActions";
 
 function getNonce(): string {
   return randomBytes(16).toString("base64");
@@ -49,6 +51,7 @@ function getWebviewHtml(
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  let actionInProgress = false;
   const disposable = vscode.commands.registerCommand(
     "soft-start.openDashboard",
     () => {
@@ -65,6 +68,32 @@ export function activate(context: vscode.ExtensionContext) {
       );
 
       panel.webview.html = getWebviewHtml(panel.webview, context.extensionUri);
+
+      const listener = panel.webview.onDidReceiveMessage(async (message: unknown) => {
+        if (actionInProgress || !isQuickActionMessage(message)) {
+          return;
+        }
+        actionInProgress = true;
+        try {
+          switch (message.action) {
+            case "newProject":
+              await createProject();
+              break;
+            case "openFolder":
+              await vscode.commands.executeCommand("workbench.action.files.openFolder");
+              break;
+            case "cloneRepository":
+              await vscode.commands.executeCommand("git.clone");
+              break;
+          }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          void vscode.window.showErrorMessage(`Quick action failed. ${detail}`);
+        } finally {
+          actionInProgress = false;
+        }
+      });
+      panel.onDidDispose(() => listener.dispose());
     },
   );
 

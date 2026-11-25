@@ -202,12 +202,6 @@
   stroke-linejoin: round;
 }
 
-.action-status {
-  margin: -5px 0 12px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .quick-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

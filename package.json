@@ -16,6 +16,72 @@
     "configuration": {
       "title": "Soft Start",
       "properties": {
+        "softStart.backgroundColor": {
+          "type": "string",
+          "default": "#080709",
+          "scope": "application",
+          "description": "Dashboard background color in #RRGGBB format.",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "softStart.accentColor": {
+          "type": "string",
+          "default": "#c5b3e5",
+          "scope": "application",
+          "description": "Dashboard accent color in #RRGGBB format. Soft Start adjusts the displayed color for contrast when needed.",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "softStart.panelOpacity": {
+          "type": "integer",
+          "default": 85,
+          "scope": "application",
+          "description": "Dashboard panel opacity as a percentage.",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "softStart.artworkVisible": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Show the dashboard background artwork when the window is wide enough."
+        },
+        "softStart.artworkOpacity": {
+          "type": "integer",
+          "default": 14,
+          "scope": "application",
+          "description": "Dashboard background artwork opacity as a percentage.",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "softStart.welcomeMessage": {
+          "type": "string",
+          "default": "Ready when you are",
+          "scope": "application",
+          "description": "Welcome message shown on the dashboard.",
+          "maxLength": 160,
+          "pattern": "^[^\\r\\n\\u0000]*$"
+        },
+        "softStart.headerKaomoji": {
+          "type": "string",
+          "default": "૮ ᴗ͈ ˕ ✙╿ྀི꒱",
+          "scope": "application",
+          "description": "Kaomoji shown in the dashboard header when decorative symbols are enabled.",
+          "maxLength": 80,
+          "pattern": "^[^\\r\\n\\u0000]*$"
+        },
+        "softStart.decorativeSymbols": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Show decorative symbols and the header kaomoji."
+        },
+        "softStart.recentProjectsLimit": {
+          "type": "integer",
+          "default": 4,
+          "scope": "application",
+          "description": "Number of recent projects shown on the dashboard. View all recent projects opens the full history.",
+          "minimum": 1,
+          "maximum": 10
+        },
         "softStart.projectsDirectory": {
           "type": "string",
           "default": "",

@@ -1,5 +1,5 @@
-import { isAbsolute } from "node:path";
 import * as vscode from "vscode";
+import { pickProjectsDirectory, projectsDirectoryUri } from "./projectsDirectory";
 
 type ProjectApi = {
   window: Pick<typeof vscode.window, "showInputBox" | "showOpenDialog"> & {
@@ -48,19 +48,13 @@ export async function createProject(api: ProjectApi = vscode): Promise<void> {
       .get("projectsDirectory", "");
     let parent: vscode.Uri | undefined;
     if (configuredPath.trim()) {
-      if (!isAbsolute(configuredPath)) {
-        throw new Error("Set softStart.projectsDirectory to an absolute directory path.");
-      }
-      parent = vscode.Uri.file(configuredPath);
+      parent = projectsDirectoryUri(configuredPath);
     } else {
-      const folders = await api.window.showOpenDialog({
-        title: "Select a parent folder for the new project",
-        openLabel: "Select parent folder",
-        canSelectFolders: true,
-        canSelectFiles: false,
-        canSelectMany: false,
-      });
-      parent = folders?.[0];
+      parent = await pickProjectsDirectory(
+        (options) => api.window.showOpenDialog(options),
+        "Select a parent folder for the new project",
+        "Select parent folder",
+      );
     }
     if (!parent) {
       return;

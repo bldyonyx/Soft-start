@@ -4,6 +4,12 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "Soft Start: Build Extension and Webview",
+			"type": "npm",
+			"script": "vscode:prepublish",
+			"problemMatcher": "$tsc"
+		},
+		{
 			"type": "npm",
 			"script": "watch",
 			"problemMatcher": "$tsc-watch",

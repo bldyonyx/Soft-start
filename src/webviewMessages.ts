@@ -1,3 +1,4 @@
+import { isSettingsPatch, isSettingValue, settingKeys, type DashboardSettings, type SettingsPatch } from "./dashboardSettings";
 import { isQuickActionMessage, type QuickActionMessage } from "./quickActions";
 
 export type ProjectKind = "folder" | "workspace";
@@ -10,7 +11,21 @@ export type ProjectItem = {
 
 export type RecentProjectItem = ProjectItem & { lastOpened: number };
 
+export const settingsHostMeta = "soft-start-settings-host";
+
+export type SettingsRequest =
+  | { type: "requestSettings" }
+  | { type: "saveSettings"; changes: SettingsPatch }
+  | { type: "restoreSettings" }
+  | { type: "browseProjectsDirectory" };
+
+export type SettingsMessage =
+  | { type: "settings"; settings: DashboardSettings }
+  | { type: "settingsResult"; settings: DashboardSettings; error?: string; directory?: string; status?: string }
+  | { type: "settingsLoadError"; error: string };
+
 export type DashboardMessage =
+  | SettingsRequest
   | QuickActionMessage
   | { type: "requestRecentProjects" | "viewAllRecentProjects" }
   | { type: "addPinnedProject" }
@@ -34,6 +49,12 @@ export function isDashboardMessage(value: unknown): value is DashboardMessage {
     return false;
   }
   switch (value.type) {
+    case "requestSettings":
+    case "restoreSettings":
+    case "browseProjectsDirectory":
+      return true;
+    case "saveSettings":
+      return "changes" in value && isSettingsPatch(value.changes);
     case "requestRecentProjects":
     case "viewAllRecentProjects":
     case "addPinnedProject":
@@ -80,4 +101,23 @@ export function isPinnedProjectsMessage(value: unknown): value is PinnedProjects
   return typeof value === "object" && value !== null &&
     "type" in value && value.type === "pinnedProjects" &&
     "projects" in value && Array.isArray(value.projects) && value.projects.every(isProjectItem);
+}
+
+
+export function isSettingsMessage(value: unknown): value is SettingsMessage {
+  if (typeof value !== "object" || value === null || !("type" in value)) {
+    return false;
+  }
+  if (value.type === "settingsLoadError") {
+    return "error" in value && typeof value.error === "string";
+  }
+  if ((value.type !== "settings" && value.type !== "settingsResult") ||
+      !("settings" in value) || typeof value.settings !== "object" || value.settings === null) {
+    return false;
+  }
+  const settings = value.settings as Record<string, unknown>;
+  return settingKeys.every((key) => Object.hasOwn(settings, key) && isSettingValue(key, settings[key])) &&
+    (!("error" in value) || value.error === undefined || typeof value.error === "string") &&
+    (!("directory" in value) || value.directory === undefined || isSettingValue("projectsDirectory", value.directory)) &&
+    (!("status" in value) || value.status === undefined || typeof value.status === "string");
 }

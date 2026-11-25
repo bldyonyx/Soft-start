@@ -5,7 +5,9 @@ import { createProject } from "./newProject";
 import { presentProject as presentRecentProject, RecentProjects } from "./recentProjects";
 import { currentProject, openProject, presentProject, projectId } from "./projects";
 import { PinnedProjects, promptPinnedProjectName, selectPinnedProject } from "./pinnedProjects";
-import { isDashboardMessage, type PinnedProjectsMessage, type RecentProjectsMessage } from "./webviewMessages";
+import { onSettingsChanged } from "./settingsConfiguration";
+import { SettingsWebview } from "./settingsWebview";
+import { isDashboardMessage, settingsHostMeta, type PinnedProjectsMessage, type RecentProjectsMessage } from "./webviewMessages";
 
 function getNonce(): string {
   return randomBytes(16).toString("base64");
@@ -47,15 +49,21 @@ function getWebviewHtml(
   html = html.replace(
     "<head>",
     `<head>
-    <meta http-equiv="Content-Security-Policy" content="${csp}">`,
+    <meta http-equiv="Content-Security-Policy" content="${csp}">
+    <meta name="${settingsHostMeta}" content="1">`,
   );
 
   return html;
 }
 
+function reportSettingsDeliveryError(error: unknown) {
+  console.error("Soft Start could not send dashboard settings to the webview.", error);
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const history = new RecentProjects(context.globalState);
   const pins = new PinnedProjects(context.globalState);
+  const settings = new SettingsWebview();
   const dashboards = new Set<vscode.Webview>();
   let actionInProgress = false;
   let observedId: string | undefined;
@@ -100,6 +108,11 @@ export function activate(context: vscode.ExtensionContext) {
 
   trackProject();
   context.subscriptions.push(
+    onSettingsChanged(() => {
+      for (const webview of dashboards) {
+        void settings.publish(webview).catch(reportSettingsDeliveryError);
+      }
+    }),
     vscode.workspace.onDidChangeWorkspaceFolders(trackProject),
     vscode.window.onDidChangeWindowState((state) => {
       if (state.focused) {
@@ -129,6 +142,11 @@ export function activate(context: vscode.ExtensionContext) {
 
       const listener = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isDashboardMessage(message)) {
+          return;
+        }
+        if (message.type === "requestSettings" || message.type === "saveSettings" ||
+            message.type === "restoreSettings" || message.type === "browseProjectsDirectory") {
+          await settings.handle(message, webview).catch(reportSettingsDeliveryError);
           return;
         }
         if (message.type === "requestRecentProjects") {

@@ -4,7 +4,9 @@
   --surface: #0f0e11;
   --title-bar: #151318;
   --elevated: #19171d;
-  --panel-surface: color-mix(in srgb, var(--surface) 85%, transparent);
+  --panel-opacity: 85%;
+  --artwork-opacity: 0.14;
+  --panel-surface: color-mix(in srgb, var(--surface) var(--panel-opacity), transparent);
   --inner-surface: color-mix(in srgb, var(--elevated) 94%, transparent);
   --border: #29242f;
   --hover-surface: #211d27;
@@ -36,6 +38,13 @@ body {
   isolation: isolate;
 }
 
+.artwork {
+  opacity: var(--artwork-opacity);
+  filter: var(--artwork-filter, none);
+  pointer-events: none;
+  user-select: none;
+}
+
 .dashboard-watermark {
   position: fixed;
   z-index: -1;
@@ -46,9 +55,6 @@ body {
   /* Preserve the footprint of the original 37 lines and 48-column size cap. */
   block-size: min(79.92dvh, calc((100vw - 32px) * 37 / 48));
   inline-size: auto;
-  opacity: 0.14;
-  pointer-events: none;
-  user-select: none;
 }
 
 @media (max-width: 520px) {

@@ -1,6 +1,11 @@
-import { useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { QuickActionMessage } from "../../src/quickActions";
-import { isPinnedProjectsMessage, isRecentProjectsMessage, type DashboardMessage, type ProjectItem, type RecentProjectItem } from "../../src/webviewMessages";
+import { isPinnedProjectsMessage, isRecentProjectsMessage, type DashboardMessage, type SettingsRequest, type ProjectItem, type RecentProjectItem } from "../../src/webviewMessages";
+import { visibleRecentProjects, type DashboardSettings } from "../../src/dashboardSettings";
+import { applyDashboardTheme } from "./dashboardTheme";
+import { SettingsView } from "./SettingsView";
+import { useDashboardSettings } from "./useDashboardSettings";
+import watermark from "./watermark.svg";
 import "./App.css";
 
 declare function acquireVsCodeApi(): { postMessage: (message: DashboardMessage) => void };
@@ -8,6 +13,7 @@ declare function acquireVsCodeApi(): { postMessage: (message: DashboardMessage) 
 const vscode = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : undefined;
 
 const iconPaths = {
+  settings: "m9 3-1 3-3 1-2 3 2 2v2l-1 2 2 3 3-1 2 3h3l1-3 3-1 2-3-2-2v-2l1-2-2-3-3 1-2-3Zm6 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",
   grip: "M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01",
   pin: "M8 3h8l-1 5 3 3v2H6v-2l3-3-1-5Zm4 10v7",
   clock: "M12 8v4l2.5 1.5M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z",
@@ -44,14 +50,14 @@ function DashboardSection({
 }: {
   id: string;
   title: string;
-  accent: string;
+  accent?: string;
   children: ReactNode;
 }) {
   return (
     <section className="dashboard-section" aria-labelledby={id}>
       <h2 id={id} className="section-title">
         {title}
-        <Accent>{accent}</Accent>
+        {accent && <Accent>{accent}</Accent>}
       </h2>
       {children}
     </section>
@@ -253,8 +259,6 @@ function PinnedProjectsPanel({ projects }: { projects: ProjectItem[] }) {
   );
 }
 
-const visibleRecentProjects = 4;
-
 function useProjectLists() {
   const [recent, setRecent] = useState<RecentProjectItem[]>([]);
   const [pinned, setPinned] = useState<ProjectItem[]>([]);
@@ -285,15 +289,16 @@ function useProjectLists() {
   return { recent, pinned, now };
 }
 
-function RecentProjectsPanel({ projects, pinned, now }: {
+function RecentProjectsPanel({ projects, pinned, now, limit }: {
   projects: RecentProjectItem[];
   pinned: Set<string>;
   now: number;
+  limit: number;
 }) {
   return (
     <div className="project-panel recent-panel">
       <ul className="recent-list">
-        {projects.length ? projects.slice(0, visibleRecentProjects).map((project) => (
+        {projects.length ? visibleRecentProjects(projects, limit).map((project) => (
           <RecentProjectRow key={project.id} project={project} now={now} pinned={pinned.has(project.id)} />
         )) : (
           <li className="recent-row">
@@ -302,7 +307,7 @@ function RecentProjectsPanel({ projects, pinned, now }: {
           </li>
         )}
       </ul>
-      {projects.length > visibleRecentProjects && (
+      {projects.length > limit && (
         <button
           className="recent-view-all"
           type="button"
@@ -315,60 +320,107 @@ function RecentProjectsPanel({ projects, pinned, now }: {
   );
 }
 
+function WelcomeWindow({ settings, preview = false }: { settings: DashboardSettings; preview?: boolean }) {
+  const Heading = preview ? "h3" : "h1";
+  return (
+    <div className="welcome-window">
+      <div className="window-bar">
+        <div className="window-dots" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </div>
+        <span>Workspace</span>
+      </div>
+      <div className={preview ? "window-content preview-window-content" : "window-content"}>
+        {preview && <img className="settings-preview-artwork artwork" src={watermark} alt="" aria-hidden="true" />}
+        <Heading>{settings.welcomeMessage}{settings.decorativeSymbols && <> <Accent>‹𝟹</Accent></>}</Heading>
+        {settings.decorativeSymbols && <Accent>・・・・・</Accent>}
+      </div>
+    </div>
+  );
+}
+
+const postSettings = vscode && ((message: SettingsRequest) => vscode.postMessage(message));
+
 function App() {
   const { recent, pinned, now } = useProjectLists();
+  const settings = useDashboardSettings(postSettings);
+  const [showSettings, setShowSettings] = useState(false);
+  const settingsButton = useRef<HTMLButtonElement>(null);
+  const focusOnReturn = useRef(false);
+  const active = showSettings ? settings.preview : settings.saved;
+  const { backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity } = active;
+  const symbols = settings.saved.decorativeSymbols;
+
+  useLayoutEffect(() => applyDashboardTheme({ backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity }),
+    [backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity]);
+
+  useEffect(() => {
+    if (showSettings) {
+      document.querySelector<HTMLButtonElement>("[data-view-focus]")?.focus();
+    } else if (focusOnReturn.current) {
+      settingsButton.current?.focus();
+    }
+  }, [showSettings]);
+
   return (
-    <main className="dashboard">
-      <header className="dashboard-header">
-        <div className="dashboard-brand">
-          <span className="brand-mark"><Accent>𓏲ּ𝄢</Accent></span>
-          <span>Soft Start</span>
-        </div>
-        <Accent>૮ ᴗ͈ ˕ ✙╿ྀི꒱</Accent>
-      </header>
+    <>
+      {!showSettings && <img className="dashboard-watermark artwork" src={watermark} alt="" aria-hidden="true" />}
+      <main className="dashboard" hidden={showSettings}>
+        <header className="dashboard-header">
+          <div className="dashboard-brand">
+            {symbols && <span className="brand-mark"><Accent>𓏲ּ𝄢</Accent></span>}
+            <span>Soft Start</span>
+          </div>
+          {symbols && <Accent>{settings.saved.headerKaomoji}</Accent>}
+          <button type="button" className="settings-gear" ref={settingsButton} aria-label="Open settings" title="Settings"
+            onClick={() => {
+              focusOnReturn.current = true;
+              setShowSettings(true);
+            }}>
+            <Icon name="settings" />
+          </button>
+        </header>
 
-      <div className="welcome-window">
-        <div className="window-bar">
-          <span className="window-dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          <span>Workspace</span>
-        </div>
-        <div className="window-content">
-          <h1>Ready when you are <Accent>‹𝟹</Accent></h1>
-          <Accent>・・・・・</Accent>
-        </div>
-      </div>
+        <WelcomeWindow settings={settings.saved} />
 
-      <div className="project-columns">
-        <DashboardSection id="pinned-projects" title="Pinned projects" accent="ഒ">
-          <PinnedProjectsPanel projects={pinned} />
+        <div className="project-columns">
+          <DashboardSection id="pinned-projects" title="Pinned projects" accent={symbols ? "ഒ" : undefined}>
+            <PinnedProjectsPanel projects={pinned} />
+          </DashboardSection>
+
+          <DashboardSection id="recent-projects" title="Recent projects" accent={symbols ? "⸝⸝" : undefined}>
+            <RecentProjectsPanel projects={recent} now={now} limit={settings.saved.recentProjectsLimit} pinned={new Set(pinned.map(({ id }) => id))} />
+          </DashboardSection>
+        </div>
+
+        <DashboardSection id="quick-actions" title="Quick actions" accent={symbols ? "ʚ⠀ິɞ" : undefined}>
+          <div className="quick-actions" role="group" aria-labelledby="quick-actions">
+            {quickActions.map(({ label, icon, action }) => (
+              <button
+                type="button"
+                className="utility-tile"
+                key={action}
+                disabled={!vscode}
+                onClick={() => vscode?.postMessage({ type: "quickAction", action })}
+              >
+                <span className="shortcut-icon"><Icon name={icon} /></span>
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
         </DashboardSection>
-
-        <DashboardSection id="recent-projects" title="Recent projects" accent="⸝⸝">
-          <RecentProjectsPanel projects={recent} now={now} pinned={new Set(pinned.map(({ id }) => id))} />
-        </DashboardSection>
-      </div>
-
-      <DashboardSection id="quick-actions" title="Quick actions" accent="ʚ⠀ິɞ">
-        <div className="quick-actions" role="group" aria-labelledby="quick-actions">
-          {quickActions.map(({ label, icon, action }) => (
-            <button
-              type="button"
-              className="utility-tile"
-              key={action}
-              disabled={!vscode}
-              onClick={() => vscode?.postMessage({ type: "quickAction", action })}
-            >
-              <span className="shortcut-icon"><Icon name={icon} /></span>
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
-      </DashboardSection>
-    </main>
+      </main>
+      {showSettings && (
+        <SettingsView settings={settings} back={() => setShowSettings(false)} preview={
+          <>
+            {active.decorativeSymbols && <div className="settings-preview-kaomoji"><Accent>{active.headerKaomoji}</Accent></div>}
+            <WelcomeWindow settings={active} preview />
+          </>
+        } />
+      )}
+    </>
   );
 }
 

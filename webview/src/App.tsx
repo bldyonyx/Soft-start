@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { QuickActionMessage } from "../../src/quickActions";
-import { isPinnedProjectsMessage, isRecentProjectsMessage, type DashboardMessage, type SettingsRequest, type ProjectItem, type RecentProjectItem } from "../../src/webviewMessages";
+import { isPinnedProjectsMessage, isProjectActionMessage, isRecentProjectsMessage, type DashboardMessage, type SettingsRequest, type ProjectItem, type RecentProjectItem } from "../../src/webviewMessages";
 import { visibleRecentProjects, type DashboardSettings } from "../../src/dashboardSettings";
 import { applyDashboardTheme } from "./dashboardTheme";
 import { SettingsView } from "./SettingsView";
@@ -167,12 +167,12 @@ function RecentProjectRow({ project, now, pinned }: { project: RecentProjectItem
   );
 }
 
-function PinnedProjectsPanel({ projects }: { projects: ProjectItem[] }) {
+function PinnedProjectsPanel({ projects, busy }: { projects: ProjectItem[]; busy: boolean }) {
   const [drag, setDrag] = useState<{ id: string; over?: string }>();
   const source = drag ? projects.findIndex(({ id }) => id === drag.id) : -1;
 
   function move(from: number, to: number) {
-    if (from < 0 || to < 0 || to >= projects.length || from === to) {
+    if (busy || from < 0 || to < 0 || to >= projects.length || from === to) {
       return;
     }
     const ids = projects.map(({ id }) => id);
@@ -182,7 +182,7 @@ function PinnedProjectsPanel({ projects }: { projects: ProjectItem[] }) {
   }
 
   function allowDrop(event: DragEvent<HTMLLIElement>, id: string) {
-    if (drag && source >= 0 && drag.id !== id) {
+    if (!busy && drag && source >= 0 && drag.id !== id) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
       if (drag.over !== id) {
@@ -223,7 +223,7 @@ function PinnedProjectsPanel({ projects }: { projects: ProjectItem[] }) {
                   className="pinned-drag-handle"
                   title="Drag to reorder"
                   aria-hidden="true"
-                  draggable
+                  draggable={!busy}
                   onDragStart={(event) => {
                     event.dataTransfer.effectAllowed = "move";
                     event.dataTransfer.setData("text/plain", project.id);
@@ -263,6 +263,7 @@ function useProjectLists() {
   const [recent, setRecent] = useState<RecentProjectItem[]>([]);
   const [pinned, setPinned] = useState<ProjectItem[]>([]);
   const [now, setNow] = useState(Date.now);
+  const [action, setAction] = useState<{ busy: boolean; error?: string }>({ busy: false });
 
   useEffect(() => {
     if (!vscode) {
@@ -275,6 +276,8 @@ function useProjectLists() {
         setNow(Date.now());
       } else if (isPinnedProjectsMessage(event.data)) {
         setPinned(event.data.projects);
+      } else if (isProjectActionMessage(event.data)) {
+        setAction(event.data);
       }
     };
     window.addEventListener("message", receive);
@@ -286,7 +289,7 @@ function useProjectLists() {
     };
   }, []);
 
-  return { recent, pinned, now };
+  return { recent, pinned, now, action };
 }
 
 function RecentProjectsPanel({ projects, pinned, now, limit }: {
@@ -344,7 +347,7 @@ function WelcomeWindow({ settings, preview = false }: { settings: DashboardSetti
 const postSettings = vscode && ((message: SettingsRequest) => vscode.postMessage(message));
 
 function App() {
-  const { recent, pinned, now } = useProjectLists();
+  const { recent, pinned, now, action: projectAction } = useProjectLists();
   const settings = useDashboardSettings(postSettings);
   const [showSettings, setShowSettings] = useState(false);
   const settingsButton = useRef<HTMLButtonElement>(null);
@@ -385,32 +388,43 @@ function App() {
 
         <WelcomeWindow settings={settings.saved} />
 
-        <div className="project-columns">
-          <DashboardSection id="pinned-projects" title="Pinned projects" accent={symbols ? "ഒ" : undefined}>
-            <PinnedProjectsPanel projects={pinned} />
-          </DashboardSection>
+        <div className="project-actions" role="group" aria-label="Projects and quick actions"
+          aria-disabled={projectAction.busy}
+          onClickCapture={(event) => {
+            if (projectAction.busy) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }}>
+          <div className="project-columns">
+            <DashboardSection id="pinned-projects" title="Pinned projects" accent={symbols ? "ഒ" : undefined}>
+              <PinnedProjectsPanel projects={pinned} busy={projectAction.busy} />
+            </DashboardSection>
 
-          <DashboardSection id="recent-projects" title="Recent projects" accent={symbols ? "⸝⸝" : undefined}>
-            <RecentProjectsPanel projects={recent} now={now} limit={settings.saved.recentProjectsLimit} pinned={new Set(pinned.map(({ id }) => id))} />
+            <DashboardSection id="recent-projects" title="Recent projects" accent={symbols ? "⸝⸝" : undefined}>
+              <RecentProjectsPanel projects={recent} now={now} limit={settings.saved.recentProjectsLimit} pinned={new Set(pinned.map(({ id }) => id))} />
+            </DashboardSection>
+          </div>
+
+          <DashboardSection id="quick-actions" title="Quick actions" accent={symbols ? "ʚ⠀ິɞ" : undefined}>
+            <div className="quick-actions" role="group" aria-labelledby="quick-actions">
+              {quickActions.map(({ label, icon, action }) => (
+                <button
+                  type="button"
+                  className="utility-tile"
+                  key={action}
+                  disabled={!vscode}
+                  onClick={() => vscode?.postMessage({ type: "quickAction", action })}
+                >
+                  <span className="shortcut-icon"><Icon name={icon} /></span>
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
           </DashboardSection>
         </div>
-
-        <DashboardSection id="quick-actions" title="Quick actions" accent={symbols ? "ʚ⠀ິɞ" : undefined}>
-          <div className="quick-actions" role="group" aria-labelledby="quick-actions">
-            {quickActions.map(({ label, icon, action }) => (
-              <button
-                type="button"
-                className="utility-tile"
-                key={action}
-                disabled={!vscode}
-                onClick={() => vscode?.postMessage({ type: "quickAction", action })}
-              >
-                <span className="shortcut-icon"><Icon name={icon} /></span>
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
-        </DashboardSection>
+        {projectAction.error && <p className="project-action-message" role="alert">{projectAction.error}</p>}
+        {projectAction.busy && <p className="project-action-message" role="status">Working on a project action…</p>}
       </main>
       {showSettings && (
         <SettingsView settings={settings} back={() => setShowSettings(false)} preview={

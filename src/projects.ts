@@ -6,6 +6,11 @@ import type { ProjectItem, ProjectKind } from "./webviewMessages";
 type ProjectUri = Pick<vscode.Uri, "scheme" | "authority" | "path" | "query" | "fragment">;
 export type Project = { uri: vscode.Uri; name: string; kind: ProjectKind };
 export type StoredProject = Omit<Project, "uri"> & { id: string; uri: ProjectUri };
+export type ProjectOrigin =
+  | { kind: "host"; key: string; label: string }
+  | { kind: "addressed" }
+  | { kind: "unknown" };
+export type IdentifiedProject = StoredProject & { origin: ProjectOrigin };
 
 export function serializeUri({ scheme, authority, path, query, fragment }: ProjectUri): ProjectUri {
   // Uri.toString() can lowercase the authority, including a WSL distribution name.
@@ -48,11 +53,82 @@ export function readStoredProject(value: unknown): StoredProject | undefined {
   }
 }
 
-export function presentProject({ id, uri: components, name, kind }: StoredProject): ProjectItem {
+export function identifyProject(project: Project, host?: Extract<ProjectOrigin, { kind: "host" }>): IdentifiedProject {
+  const uri = serializeUri(project.uri);
+  const origin: ProjectOrigin = uri.scheme === "file" ? host ?? { kind: "unknown" } :
+    hasExplicitAddress(uri) ? { kind: "addressed" } : { kind: "unknown" };
+  return { ...project, uri, origin, id: identifiedProjectId(uri, origin) };
+}
+
+function hasExplicitAddress(uri: ProjectUri): boolean {
+  // An authority-less provider URI can be scoped to a different host or client.
+  return uri.scheme !== "file" && uri.scheme !== "vscode-local" && Boolean(uri.authority);
+}
+
+function identifiedProjectId(uri: ProjectUri, origin: ProjectOrigin): string {
+  return origin.kind === "host"
+    ? createHash("sha256").update(JSON.stringify([origin.key, serializeUri(uri)])).digest("hex")
+    : projectId(uri);
+}
+
+export function readIdentifiedProject(value: unknown): IdentifiedProject | undefined {
+  if (typeof value !== "object" || value === null || !("id" in value) || !("uri" in value)) {
+    return;
+  }
+  const uri = readProjectUri(value.uri);
+  if (!uri) {
+    return;
+  }
+  const base = readStoredProject({ ...value, id: projectId(uri) });
+  if (!base) {
+    return;
+  }
+  const origin = "origin" in value ? value.origin : undefined;
+  if (typeof origin !== "object" || origin === null || !("kind" in origin)) {
+    return;
+  }
+  if (origin.kind === "host" && uri.scheme === "file" && "key" in origin && typeof origin.key === "string" &&
+      /^[a-f0-9]{64}$/.test(origin.key) && "label" in origin && typeof origin.label === "string") {
+    const host: ProjectOrigin = { kind: "host", key: origin.key, label: origin.label };
+    const id = identifiedProjectId(uri, host);
+    if (id === value.id) {
+      return { ...base, id, origin: host };
+    }
+  } else if (origin.kind === "unknown" || (origin.kind === "addressed" && hasExplicitAddress(uri))) {
+    if (base.id === value.id) {
+      return { ...base, origin: { kind: origin.kind } };
+    }
+  }
+}
+
+export function migrateProject(value: unknown): IdentifiedProject | undefined {
+  const migrated = readIdentifiedProject(value);
+  if (migrated) {
+    return migrated;
+  }
+  const legacy = readStoredProject(value);
+  if (legacy) {
+    return identifyProject({ ...legacy, uri: vscode.Uri.from(legacy.uri) });
+  }
+}
+
+export function assertProjectOrigin(entry: IdentifiedProject, host?: Extract<ProjectOrigin, { kind: "host" }>): void {
+  if (entry.origin.kind === "unknown") {
+    throw new Error("Soft Start cannot verify this saved project's original host. Open it from the correct VS Code window and pin it again if needed.");
+  }
+  if (entry.origin.kind === "host" && entry.origin.key !== host?.key) {
+    throw new Error(`Open this project from its original ${entry.origin.label} environment.`);
+  }
+}
+
+export function presentProject(entry: StoredProject | IdentifiedProject): ProjectItem {
+  const { id, uri: components, name, kind } = entry;
   const uri = vscode.Uri.from(components);
   const path = uri.scheme === "file" ? uri.fsPath :
     uri.authority ? `${uri.authority}${uri.path}` : `${uri.scheme}:${uri.path}`;
-  return { id, name, kind, path };
+  const origin = "origin" in entry ? entry.origin : undefined;
+  const originLabel = origin?.kind === "unknown" ? "Unknown host" : origin?.kind === "host" ? origin.label : undefined;
+  return { id, name, kind, path: originLabel ? `${originLabel} · ${path}` : path };
 }
 
 export function currentProject(
@@ -86,6 +162,8 @@ export async function openProject(
     await open(uri);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Could not open "${entry.name}". ${detail}`);
+    const recovery = uri.scheme === "vscode-remote" && uri.authority
+      ? ` Connect to ${uri.authority} and verify the original project exists.` : "";
+    throw new Error(`Could not open "${entry.name}". ${detail}${recovery}`);
   }
 }

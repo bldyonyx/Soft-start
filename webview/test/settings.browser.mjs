@@ -197,6 +197,15 @@ try {
   await send("Log.enable");
   await send("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/` });
   await waitFor("document.querySelector('.settings-gear')");
+  await evaluate("window.postMessage({type:'projectAction',busy:true}, '*')");
+  await waitFor("document.querySelector('.project-actions').getAttribute('aria-disabled') === 'true'");
+  await click(".utility-tile");
+  assert.equal(await evaluate("requests.some(({type}) => type === 'quickAction')"), false);
+  await evaluate("window.postMessage({type:'projectAction',busy:false,error:'Git Clone is unavailable.'}, '*')");
+  await waitFor("document.querySelector('[role=alert]').textContent === 'Git Clone is unavailable.'");
+  await click(".utility-tile");
+  assert.equal(await evaluate("requests.some(({type}) => type === 'quickAction')"), true);
+  await evaluate("window.postMessage({type:'projectAction',busy:false}, '*')");
   await click(".settings-gear");
   await waitFor("document.querySelector('.settings-view')");
   assert.equal(await evaluate("document.querySelector('fieldset').disabled"), false, "preview must work before a host reply");

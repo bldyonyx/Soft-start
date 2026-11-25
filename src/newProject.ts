@@ -1,5 +1,6 @@
+import { mkdir } from "node:fs/promises";
 import * as vscode from "vscode";
-import { pickProjectsDirectory, projectsDirectoryUri } from "./projectsDirectory";
+import { pickProjectsDirectory, projectsDirectoryPath, projectsDirectoryUri, validateProjectsDirectory } from "./projectsDirectory";
 
 type ProjectApi = {
   window: Pick<typeof vscode.window, "showInputBox" | "showOpenDialog"> & {
@@ -7,7 +8,7 @@ type ProjectApi = {
   };
   workspace: {
     getConfiguration(section: string): {
-      get(key: string, defaultValue: string): string;
+      get(key: string, defaultValue: string): unknown;
     };
     fs: Pick<typeof vscode.workspace.fs, "stat" | "createDirectory">;
   };
@@ -28,7 +29,21 @@ function validateProjectName(name: string): string | undefined {
   }
 }
 
-export async function createProject(api: ProjectApi = vscode): Promise<void> {
+export async function createNativeProjectDirectory(uri: vscode.Uri): Promise<void> {
+  if (uri.scheme === "file") {
+    // Exclusive creation catches a competing mkdir between the existence check and creation.
+    await mkdir(uri.fsPath);
+  } else {
+    await vscode.workspace.fs.createDirectory(uri);
+  }
+}
+
+export async function createProject(
+  api: ProjectApi = vscode,
+  verifiedRemote?: vscode.Uri,
+  makeDirectory: (uri: vscode.Uri) => Thenable<void> = api === vscode
+    ? createNativeProjectDirectory : (uri) => api.workspace.fs.createDirectory(uri),
+): Promise<void> {
   let created = false;
   try {
     const name = await api.window.showInputBox({
@@ -46,8 +61,9 @@ export async function createProject(api: ProjectApi = vscode): Promise<void> {
 
     const configuredPath = api.workspace.getConfiguration("softStart")
       .get("projectsDirectory", "");
+    validateProjectsDirectory(configuredPath);
     let parent: vscode.Uri | undefined;
-    if (configuredPath.trim()) {
+    if (configuredPath) {
       parent = projectsDirectoryUri(configuredPath);
     } else {
       parent = await pickProjectsDirectory(
@@ -59,6 +75,7 @@ export async function createProject(api: ProjectApi = vscode): Promise<void> {
     if (!parent) {
       return;
     }
+    projectsDirectoryPath(parent, verifiedRemote);
     const parentStat = await api.workspace.fs.stat(parent);
     if (!(parentStat.type & vscode.FileType.Directory)) {
       throw new Error("The projects directory must be a folder.");
@@ -74,7 +91,14 @@ export async function createProject(api: ProjectApi = vscode): Promise<void> {
       }
     }
 
-    await api.workspace.fs.createDirectory(destination);
+    try {
+      await makeDirectory(destination);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && (error.code === "EEXIST" || error.code === "FileExists")) {
+        throw new Error(`A file or folder named "${name}" already exists in the projects directory.`);
+      }
+      throw error;
+    }
     created = true;
     await api.commands.executeCommand("vscode.openFolder", destination);
   } catch (error) {

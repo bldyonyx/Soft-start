@@ -40,6 +40,14 @@ export type RecentProjectsMessage = { type: "recentProjects"; projects: RecentPr
 
 export type PinnedProjectsMessage = { type: "pinnedProjects"; projects: ProjectItem[] };
 
+export type ProjectActionMessage = { type: "projectAction"; busy: boolean; error?: string };
+
+export function isProjectActionMessage(value: unknown): value is ProjectActionMessage {
+  return typeof value === "object" && value !== null &&
+    "type" in value && value.type === "projectAction" && "busy" in value && typeof value.busy === "boolean" &&
+    (!("error" in value) || value.error === undefined || typeof value.error === "string");
+}
+
 function isProjectId(value: unknown): value is string {
   return typeof value === "string" && value.length === 64 && /^[a-f0-9]+$/.test(value);
 }

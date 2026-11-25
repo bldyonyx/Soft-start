@@ -592,3 +592,15 @@
   border-radius: 50%;
   background: var(--swatch);
 }
+
+
+.project-actions[aria-disabled="true"] button {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.project-action-message {
+  margin-block: 12px 0;
+  color: var(--secondary);
+  overflow-wrap: anywhere;
+}

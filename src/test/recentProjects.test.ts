@@ -1,8 +1,9 @@
 import * as assert from "node:assert/strict";
 import * as vscode from "vscode";
 import {
-  currentProject, openRecentProject, presentProject, projectId, RecentProjects, recentProjectsKey,
-} from "../recentProjects";
+  currentProject, openRecentProject, presentProject, projectId, RecentProjects,
+} from "./legacyProjectFixtures";
+import { recentProjectsKey } from "../recentProjects";
 import { isDashboardMessage, isRecentProjectsMessage } from "../webviewMessages";
 
 class MemoryState implements Pick<vscode.Memento, "get" | "update"> {

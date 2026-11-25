@@ -12,6 +12,14 @@ Soft Start is a VS Code extension with a React dashboard. Open it from the Comma
 
 Set `softStart.projectsDirectory` in VS Code Settings to an existing absolute folder on the active host. In a WSL or other remote window, use the Remote settings for that host. Leave it empty to pick a parent folder each time.
 
+## Project storage across windows
+
+Recent and pinned projects are shared by windows using the same Soft Start storage directory and host identity. Native paths are bound to the originating host. Soft Start preserves an explicit authority when VS Code provides one. Profiles, local installs, WSL distributions, and SSH hosts with separate stores do not synchronize their project histories. WSL uses the reported distro name and machine ID, and SSH uses the remote machine ID where available. If the host cannot be verified, Soft Start requires an explicitly addressed project.
+
+On first use, each store saves a versioned snapshot of the old project lists in `projects-v2/<host>/legacy.json` under VS Code's extension storage directory. The old VS Code state stays intact. Legacy entries with an unknown host remain visible and can be renamed or removed. To reopen one, locate it in the correct VS Code window and pin the verified project again. Keep the legacy state and journal files if the migration reports an error.
+
+Project updates are published as individual files using the native filesystem. VS Code windows sharing that filesystem and directory converge on the same operation order. The store requires atomic hard-link support and keeps its operation history for recovery. Independent stores do not provide cross-host transactions. Native New Project uses exclusive directory creation. A provider that exposes only VS Code's directory API can report pre-existing items during preflight, but cannot guarantee exclusive creation during a race. Soft Start never writes to an existing project's contents.
+
 ## Dashboard settings
 
 Open the gear in the dashboard header. Appearance and dashboard edits update the preview as you work. **Save changes** writes the edited preferences, and **Restore Defaults** resets appearance and dashboard preferences after confirmation. Recent and pinned projects and the projects directory are kept.

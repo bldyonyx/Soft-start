@@ -1,10 +1,10 @@
 import * as assert from "node:assert/strict";
 import * as vscode from "vscode";
 import {
-  pinnedProjectsKey, PinnedProjects, promptPinnedProjectName, selectPinnedProject,
+  pinnedProjectsKey, promptPinnedProjectName, selectPinnedProject,
 } from "../pinnedProjects";
 import { openProject, projectId } from "../projects";
-import { RecentProjects } from "../recentProjects";
+import { PinnedProjects, RecentProjects } from "./legacyProjectFixtures";
 import { isDashboardMessage, isPinnedProjectsMessage } from "../webviewMessages";
 
 class MemoryState implements Pick<vscode.Memento, "get" | "update"> {

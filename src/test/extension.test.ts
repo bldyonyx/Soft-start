@@ -3,14 +3,17 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
-import { createProject } from "../newProject";
+import { createNativeProjectDirectory, createProject } from "../newProject";
 import { isQuickActionMessage } from "../quickActions";
 
+const projectsPath = process.platform === "win32" ? "C:\\projects" : "/projects";
 const directory = { type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0 };
 
 function projectFixture(options: {
   name?: string;
-  configuredPath?: string;
+  configuredPath?: unknown;
+  remote?: vscode.Uri;
+  makeDirectory?: Parameters<typeof createProject>[2];
   pickedParent?: vscode.Uri;
   fs?: Pick<typeof vscode.workspace.fs, "stat" | "createDirectory">;
   parentStat?: vscode.FileStat | vscode.FileSystemError;
@@ -46,7 +49,7 @@ function projectFixture(options: {
         return {
           get: (key: string) => {
             assert.equal(key, "projectsDirectory");
-            return options.configuredPath ?? "";
+            return "configuredPath" in options ? options.configuredPath : "";
           },
         };
       },
@@ -84,7 +87,7 @@ function projectFixture(options: {
       },
     },
   };
-  return { run: () => createProject(api), checked, created, opened, errors, prompts };
+  return { run: () => createProject(api, options.remote, options.makeDirectory), checked, created, opened, errors, prompts };
 }
 
 suite("New project", () => {
@@ -104,7 +107,7 @@ suite("New project", () => {
   });
 
   test("creates and opens a single folder under the configured directory", async () => {
-    const parent = vscode.Uri.file(process.platform === "win32" ? "C:\\projects" : "/projects");
+    const parent = vscode.Uri.file(projectsPath);
     const fixture = projectFixture({ name: "My project", configuredPath: parent.fsPath });
     const destination = vscode.Uri.joinPath(parent, "My project");
     await fixture.run();
@@ -118,7 +121,7 @@ suite("New project", () => {
 
   test("preserves a remote folder picker's URI and authority", async () => {
     const parent = vscode.Uri.parse("vscode-remote://wsl+test/projects");
-    const fixture = projectFixture({ name: "demo", pickedParent: parent });
+    const fixture = projectFixture({ name: "demo", pickedParent: parent, remote: parent });
     const destination = vscode.Uri.joinPath(parent, "demo");
     await fixture.run();
 
@@ -168,7 +171,7 @@ suite("New project", () => {
     test(`rejects an existing destination with file type ${type}`, async () => {
       const fixture = projectFixture({
         name: "demo",
-        pickedParent: vscode.Uri.file("/projects"),
+        pickedParent: vscode.Uri.file(projectsPath),
         destinationStat: { ...directory, type },
       });
       await fixture.run();
@@ -179,10 +182,45 @@ suite("New project", () => {
     });
   }
 
+  test("rejects non-string native configuration and unverified remote pickers", async () => {
+    for (const configuredPath of [null, 42, {}, []]) {
+      const fixture = projectFixture({ name: "demo", configuredPath });
+      await fixture.run();
+      assert.match(fixture.errors[0], /absolute directory path/);
+      assert.deepEqual(fixture.checked, []);
+    }
+    const foreign = vscode.Uri.parse("vscode-remote://wsl+Other/projects");
+    const fixture = projectFixture({ name: "demo", pickedParent: foreign, remote: foreign.with({ authority: "wsl+Ubuntu" }) });
+    await fixture.run();
+    assert.match(fixture.errors[0], /active VS Code host/);
+    assert.deepEqual(fixture.checked, []);
+  });
+
+  test("rejects a native folder created after the preflight check without opening it", async () => {
+    const parent = vscode.Uri.file(await mkdtemp(join(tmpdir(), "soft-start-collision-")));
+    try {
+      const fixture = projectFixture({
+        name: "demo",
+        pickedParent: parent,
+        makeDirectory: async (uri) => {
+          await vscode.workspace.fs.createDirectory(uri);
+          await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(uri, "keep.txt"), Buffer.from("keep"));
+          await createNativeProjectDirectory(uri);
+        },
+      });
+      await fixture.run();
+      assert.match(fixture.errors[0], /already exists/);
+      assert.deepEqual(fixture.opened, []);
+      assert.equal(Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(parent, "demo", "keep.txt"))).toString(), "keep");
+    } finally {
+      await vscode.workspace.fs.delete(parent, { recursive: true });
+    }
+  });
+
   test("reports a failed destination check and skips creation", async () => {
     const fixture = projectFixture({
       name: "demo",
-      pickedParent: vscode.Uri.file("/projects"),
+      pickedParent: vscode.Uri.file(projectsPath),
       destinationStat: vscode.FileSystemError.NoPermissions("Cannot check destination"),
     });
     await fixture.run();
@@ -193,7 +231,7 @@ suite("New project", () => {
   });
 
   test("reports a missing parent without creating it", async () => {
-    const parent = vscode.Uri.file("/projects");
+    const parent = vscode.Uri.file(projectsPath);
     const fixture = projectFixture({
       name: "demo",
       pickedParent: parent,
@@ -210,7 +248,7 @@ suite("New project", () => {
   test("reports a failed folder creation and skips opening", async () => {
     const fixture = projectFixture({
       name: "demo",
-      pickedParent: vscode.Uri.file("/projects"),
+      pickedParent: vscode.Uri.file(projectsPath),
       createError: vscode.FileSystemError.Unavailable("Filesystem offline"),
     });
     await fixture.run();
@@ -223,7 +261,7 @@ suite("New project", () => {
   test("reports an open failure after the folder was created", async () => {
     const fixture = projectFixture({
       name: "demo",
-      pickedParent: vscode.Uri.file("/projects"),
+      pickedParent: vscode.Uri.file(projectsPath),
       openError: new Error("Could not open the folder"),
     });
     await fixture.run();

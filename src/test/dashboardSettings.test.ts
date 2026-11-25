@@ -1,11 +1,12 @@
+import { PinnedProjects, RecentProjects } from "./legacyProjectFixtures";
 import * as assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as vscode from "vscode";
 import { defaultSettings, settingKeys, visibleRecentProjects } from "../dashboardSettings";
-import { PinnedProjects, pinnedProjectsKey } from "../pinnedProjects";
+import { pinnedProjectsKey } from "../pinnedProjects";
 import { projectsDirectoryPath, projectsDirectoryUri } from "../projectsDirectory";
-import { RecentProjects, recentProjectsKey } from "../recentProjects";
+import { recentProjectsKey } from "../recentProjects";
 import { browseProjectsDirectory, onSettingsChanged, SettingsConfiguration } from "../settingsConfiguration";
 import { SettingsWebview } from "../settingsWebview";
 import { isDashboardMessage, isSettingsMessage, type SettingsMessage } from "../webviewMessages";
@@ -214,6 +215,7 @@ suite("Dashboard settings", () => {
     const path = projectsDirectoryPath(remote, remote, "wsl");
     assert.equal(projectsDirectoryUri(path, remote).authority, "wsl+Ubuntu");
     assert.equal(projectsDirectoryUri(path, remote).path, remote.path);
+    assert.throws(() => projectsDirectoryPath(remote, undefined, "wsl"), /active VS Code host/);
     assert.throws(() => projectsDirectoryPath(remote.with({ authority: "wsl+Debian" }), remote, "wsl"), /active VS Code host/);
   });
 

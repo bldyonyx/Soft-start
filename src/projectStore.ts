@@ -1,8 +1,8 @@
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import * as vscode from "vscode";
 import { ProjectJournal } from "./projectJournal";
 import { currentProjectHost } from "./projectHost";
-import { assertProjectOrigin, identifyProject, migrateProject, readIdentifiedProject, type IdentifiedProject, type Project, type ProjectOrigin } from "./projects";
+import { assertProjectOrigin, identifyProject, migrateProject, projectId, readIdentifiedProject, type IdentifiedProject, type Project, type ProjectOrigin } from "./projects";
 import { recentProjectsKey } from "./recentProjects";
 import { pinnedProjectsKey } from "./pinnedProjects";
 import { isProjectTimestamp } from "./webviewMessages";
@@ -13,6 +13,7 @@ export type PinnedEntry = IdentifiedProject & { pinnedAt: number; displayName?: 
 export type ProjectSnapshot = { recent: RecentEntry[]; pins: PinnedEntry[] };
 
 type ProjectEvent =
+  | { type: "recoverPublisherPins"; pins: PinnedEntry[] }
   | { type: "record"; project: RecentEntry }
   | { type: "pin"; project: PinnedEntry }
   | { type: "forget" | "unpin"; id: string }
@@ -20,7 +21,8 @@ type ProjectEvent =
   | { type: "reorder"; ids: string[] }
   | { type: "locate"; list: "pins" | "recent"; id: string; project: IdentifiedProject };
 
-type Journal = Pick<ProjectJournal, "initialize" | "events" | "append">;
+type Journal = Pick<ProjectJournal, "initialize" | "events" | "append" | "publishPublisherRecovery">;
+type HistoricalJournal = Pick<ProjectJournal, "readBaseline" | "events">;
 
 function entries<T>(raw: unknown, parse: (value: unknown) => T | undefined): T[] {
   return Array.isArray(raw) ? raw.flatMap((value) => parse(value) ?? []) : [];
@@ -63,6 +65,15 @@ function byRecency(a: RecentEntry, b: RecentEntry) {
 function readEvent(raw: unknown): ProjectEvent {
   if (raw && typeof raw === "object" && "type" in raw) {
     switch (raw.type) {
+      case "recoverPublisherPins": {
+        if ("pins" in raw && Array.isArray(raw.pins)) {
+          const pins = entries(raw.pins, readPin);
+          if (pins.length === raw.pins.length && unique(pins).length === pins.length) {
+            return { type: raw.type, pins };
+          }
+        }
+        break;
+      }
       case "record": {
         const project = "project" in raw && readRecent(raw.project);
         if (project) {
@@ -111,7 +122,7 @@ function isId(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
 
-function apply(state: ProjectSnapshot, event: ProjectEvent): void {
+function apply(state: ProjectSnapshot, event: Exclude<ProjectEvent, { type: "recoverPublisherPins" }>): void {
   switch (event.type) {
     case "record": {
       const index = state.recent.findIndex(({ id }) => id === event.project.id);
@@ -169,11 +180,63 @@ function apply(state: ProjectSnapshot, event: ProjectEvent): void {
   }
 }
 
+function replay(baseline: unknown, events: ProjectEvent[], host: Host | undefined, strictBaseline = false): ProjectSnapshot {
+  if (!baseline || typeof baseline !== "object" || !("version" in baseline) || baseline.version !== 2 ||
+      !("recent" in baseline) || !("pins" in baseline)) {
+    throw new Error("Soft Start could not read the project migration record. Keep the legacy values and project storage files for recovery.");
+  }
+  const recent = entries(baseline.recent, (value) => readRecent(value, true));
+  const pins = entries(baseline.pins, (value) => readPin(value, true));
+  if (strictBaseline && ((baseline.pins !== null && (!Array.isArray(baseline.pins) || pins.length !== baseline.pins.length)) ||
+      (baseline.recent !== null && (!Array.isArray(baseline.recent) || recent.length !== baseline.recent.length)))) {
+    throw new Error("Soft Start found invalid entries in the historical project migration record.");
+  }
+  const state = { recent: unique(recent.sort(byRecency)).slice(0, 50), pins: unique(pins) };
+  const removed = new Set<string>();
+  const recoveryAliases = new Map<string, PinnedEntry>();
+  let recovered = false;
+  for (const event of events) {
+    if (event.type === "recoverPublisherPins") {
+      if (!recovered) {
+        const blocked = new Set([...removed, ...state.pins.map(({ id }) => id)]);
+        for (const pin of event.pins) {
+          // Compare both identities for a native URI without changing an unresolved pin's origin.
+          const alias = pin.origin.kind === "unknown" && host
+            ? identifyProject({ ...pin, uri: vscode.Uri.from(pin.uri) }, host).id
+            : projectId(pin.uri);
+          if (!blocked.has(pin.id) && !blocked.has(alias)) {
+            state.pins.push(pin);
+            blocked.add(pin.id);
+            if (alias !== pin.id) {
+              recoveryAliases.set(alias, pin);
+            }
+          }
+        }
+        recovered = true;
+      }
+    } else {
+      if (event.type === "unpin") {
+        removed.add(event.id);
+        const recoveredPin = recoveryAliases.get(event.id);
+        if (recoveredPin && state.pins.includes(recoveredPin)) {
+          apply(state, { type: "unpin", id: recoveredPin.id });
+        }
+      }
+      apply(state, event);
+    }
+  }
+  state.recent = state.recent.sort(byRecency).slice(0, 50);
+  return state;
+}
+
 export class ProjectStore {
+  private publisherRecovery?: Promise<boolean>;
+
   constructor(
     private readonly journal: Journal,
     readonly host: Host | undefined,
     private readonly legacy: Pick<vscode.Memento, "get">,
+    private readonly historical?: HistoricalJournal,
   ) {}
 
   async read(): Promise<ProjectSnapshot> {
@@ -182,19 +245,34 @@ export class ProjectStore {
       recent: this.legacy.get(recentProjectsKey) ?? null,
       pins: this.legacy.get(pinnedProjectsKey) ?? null,
     });
-    if (!baseline || typeof baseline !== "object" || !("version" in baseline) || baseline.version !== 2 ||
-        !("recent" in baseline) || !("pins" in baseline)) {
-      throw new Error("Soft Start could not read the project migration record. Keep the legacy values and project storage files for recovery.");
+    let events = (await this.journal.events()).map(readEvent);
+    const state = replay(baseline, events, this.host);
+    if (this.host && this.historical && !events.some(({ type }) => type === "recoverPublisherPins")) {
+      const recovery = this.publisherRecovery ??= this.recoverPublisherPins(this.historical, this.host).catch((error: unknown) => {
+        console.error("Soft Start could not recover publisher-less project pins. The historical journal was left intact.", error);
+        return false;
+      });
+      if (await recovery) {
+        events = (await this.journal.events()).map(readEvent);
+        return replay(baseline, events, this.host);
+      }
+      if (this.publisherRecovery === recovery) {
+        this.publisherRecovery = undefined;
+      }
     }
-    const state = {
-      recent: unique(entries(baseline.recent, (value) => readRecent(value, true)).sort(byRecency)).slice(0, 50),
-      pins: unique(entries(baseline.pins, (value) => readPin(value, true))),
-    };
-    for (const event of await this.journal.events()) {
-      apply(state, readEvent(event));
-    }
-    state.recent = state.recent.sort(byRecency).slice(0, 50);
     return state;
+  }
+
+  private async recoverPublisherPins(historical: HistoricalJournal, host: Host): Promise<boolean> {
+    const baseline = await historical.readBaseline();
+    if (baseline === undefined) {
+      return false;
+    }
+    const { pins } = replay(baseline, (await historical.events()).map(readEvent), host, true);
+    const verified = pins.filter(({ origin }) => origin.kind !== "host" || origin.key === host.key);
+    // The atomic publication is both the import and its completion record.
+    await this.journal.publishPublisherRecovery({ type: "recoverPublisherPins", pins: verified } satisfies ProjectEvent);
+    return true;
   }
 
   async record(project: Project | IdentifiedProject, lastOpened = Date.now()): Promise<void> {
@@ -277,6 +355,13 @@ export async function workspaceProjectStore(context: Pick<vscode.ExtensionContex
     throw new Error("Soft Start project storage requires a native filesystem on the extension host.");
   }
   const host = await currentProjectHost();
-  const journal = new ProjectJournal(join(context.globalStorageUri.fsPath, "projects-v2", host?.key ?? "unverified-host"));
-  return { store: new ProjectStore(journal, host, context.globalState), journal };
+  return projectStoreAt(context.globalStorageUri.fsPath, host, context.globalState);
+}
+
+export function projectStoreAt(storage: string, host: Host | undefined, legacy: Pick<vscode.Memento, "get">) {
+  const journal = new ProjectJournal(join(storage, "projects-v2", host?.key ?? "unverified-host"));
+  const historical = host && basename(storage) === "bldyonyx.soft-start"
+    ? new ProjectJournal(join(dirname(storage), "undefined_publisher.soft-start", "projects-v2", host.key))
+    : undefined;
+  return { store: new ProjectStore(journal, host, legacy, historical), journal };
 }

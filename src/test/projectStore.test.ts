@@ -179,6 +179,7 @@ suite("Project origins and journal", () => {
       },
       events: () => journal.events(),
       append: (event) => journal.append(event),
+      publishPublisherRecovery: (event) => journal.publishPublisherRecovery(event),
     }, host, source);
     await assert.rejects(store.read(), /migration failed/);
     assert.deepEqual(await readdir(path), []);
@@ -218,6 +219,7 @@ suite("Project origins and journal", () => {
       initialize: (raw) => journal.initialize(raw),
       events: () => journal.events(),
       append: async () => { throw new Error("write unavailable"); },
+      publishPublisherRecovery: (event) => journal.publishPublisherRecovery(event),
     }, host, legacy);
     const b = new ProjectStore(new ProjectJournal(path), host, legacy);
     await assert.rejects(a.pin(folder("failed")), /write unavailable/);

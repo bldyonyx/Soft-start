@@ -66,11 +66,12 @@ export type ProjectRequest =
 
 export type DashboardMessage = SettingsRequest | ProjectRequest | { type: "requestRecentProjects" };
 
-export type ProjectLoadError = { type: "projectLoadError"; error: string };
+export type ProjectLoadError = { type: "projectLoadError"; error: string; unsupportedStorage?: true };
 
 export function isProjectLoadError(value: unknown): value is ProjectLoadError {
   return typeof value === "object" && value !== null &&
-    "type" in value && value.type === "projectLoadError" && "error" in value && typeof value.error === "string";
+    "type" in value && value.type === "projectLoadError" && "error" in value && typeof value.error === "string" &&
+    (!("unsupportedStorage" in value) || value.unsupportedStorage === true);
 }
 
 export type RecentProjectsMessage = { type: "recentProjects"; projects: RecentProjectItem[] };

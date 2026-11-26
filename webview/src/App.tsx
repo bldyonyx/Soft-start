@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { QuickActionMessage } from "../../src/quickActions";
-import { isPinnedProjectsMessage, isProjectActionMessage, isProjectLoadError, isRecentProjectsMessage, type DashboardMessage, type SettingsRequest, type ProjectActionMessage, type ProjectRequest, type ProjectItem, type RecentProjectItem } from "../../src/webviewMessages";
+import { isPinnedProjectsMessage, isProjectActionMessage, isProjectLoadError, isRecentProjectsMessage, type DashboardMessage, type SettingsRequest, type ProjectActionMessage, type ProjectLoadError, type ProjectRequest, type ProjectItem, type RecentProjectItem } from "../../src/webviewMessages";
 import { defaultSettings, visibleRecentProjects, type DashboardSettings } from "../../src/dashboardSettings";
 import { applyDashboardTheme } from "./dashboardTheme";
 import { SettingsView } from "./SettingsView";
@@ -381,7 +381,7 @@ function ProjectPlaceholder({ loading }: { loading: boolean }) {
 function useProjectLists() {
   const [recent, setRecent] = useState<RecentProjectItem[] | undefined>(vscode ? undefined : []);
   const [pinned, setPinned] = useState<ProjectItem[] | undefined>(vscode ? undefined : []);
-  const [loadError, setLoadError] = useState<string>();
+  const [loadError, setLoadError] = useState<Pick<ProjectLoadError, "error" | "unsupportedStorage">>();
   const loadTimer = useRef<number>(undefined);
   const [now, setNow] = useState(Date.now);
   const [action, setAction] = useState<ProjectActionMessage>({ type: "projectAction", busy: false });
@@ -391,7 +391,7 @@ function useProjectLists() {
 
   const load = useCallback(() => {
     window.clearTimeout(loadTimer.current);
-    loadTimer.current = window.setTimeout(() => setLoadError("Soft Start is still waiting for project data."), 12000);
+    loadTimer.current = window.setTimeout(() => setLoadError({ error: "Soft Start is still waiting for project data." }), 12000);
     vscode?.postMessage({ type: "requestRecentProjects" });
   }, []);
 
@@ -439,7 +439,7 @@ function useProjectLists() {
         setPinned(event.data.projects);
       } else if (isProjectLoadError(event.data)) {
         window.clearTimeout(loadTimer.current);
-        setLoadError(event.data.error);
+        setLoadError(event.data);
         return;
       } else if (isProjectActionMessage(event.data)) {
         const { change, busy } = event.data;
@@ -541,7 +541,7 @@ const postSettings = vscode && ((message: SettingsRequest) => vscode.postMessage
 
 function App() {
   const { recent, pinned, now, action: projectAction, retry, loadError, send } = useProjectLists();
-  const listsReady = recent !== undefined && pinned !== undefined;
+  const listsReady = !loadError?.unsupportedStorage && recent !== undefined && pinned !== undefined;
   const settings = useDashboardSettings(postSettings);
   const [showSettings, setShowSettings] = useState(false);
   const settingsButton = useRef<HTMLButtonElement>(null);
@@ -606,11 +606,11 @@ function App() {
             }
           }}>
           {loadError && <div className="project-load-error project-panel">
-            <p className="project-action-message" role="alert">{loadError}</p>
-            <button type="button" className="recent-view-all" onClick={() => {
+            <p className="project-action-message" role="alert">{loadError.error}</p>
+            {!loadError.unsupportedStorage && <button type="button" className="recent-view-all" onClick={() => {
               document.getElementById("pinned-projects")?.focus({ preventScroll: true });
               retry();
-            }}>Retry loading projects</button>
+            }}>Retry loading projects</button>}
           </div>}
           <div className="project-columns" data-balanced={balancePanels || undefined}>
             <DashboardSection id="pinned-projects" title="Pinned projects" accent={symbols ? "ഒ" : undefined}>

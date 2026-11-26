@@ -92,7 +92,7 @@ try {
       extensionTestsPath: tests,
       launchArgs: [
         "--ozone-platform=headless", "--disable-gpu", `--user-data-dir=${join(root, "profile")}`,
-        `--extensions-dir=${join(root, "extensions")}`, workspace,
+        `--shared-data-dir=${join(root, "shared")}`, `--extensions-dir=${join(root, "extensions")}`, workspace,
       ],
       extensionTestsEnv: {
         SOFT_START_RESTART_STAGE: stage,

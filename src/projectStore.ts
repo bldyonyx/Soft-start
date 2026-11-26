@@ -350,9 +350,15 @@ export class ProjectStore {
   }
 }
 
+export class UnsupportedProjectStorageError extends Error {
+  constructor() {
+    super("Pinned and recent projects cannot be saved or loaded in this VS Code window. Soft Start requires native filesystem storage for project history.");
+  }
+}
+
 export async function workspaceProjectStore(context: Pick<vscode.ExtensionContext, "globalStorageUri" | "globalState">) {
   if (context.globalStorageUri.scheme !== "file") {
-    throw new Error("Soft Start project storage requires a native filesystem on the extension host.");
+    throw new UnsupportedProjectStorageError();
   }
   const host = await currentProjectHost();
   return projectStoreAt(context.globalStorageUri.fsPath, host, context.globalState);

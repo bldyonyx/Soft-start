@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { createProject } from "./newProject";
-import { workspaceProjectStore } from "./projectStore";
+import { UnsupportedProjectStorageError, workspaceProjectStore } from "./projectStore";
 import { cloneProject, pendingProjectAction, ProjectActions } from "./projectActions";
 import { assertProjectOrigin, currentProject, identifyProject, openProject, presentProject, projectId } from "./projects";
 import { addPinnedProject, promptPinnedProjectName, selectProjectLocation } from "./pinnedProjects";
@@ -108,6 +108,10 @@ export function activate(context: vscode.ExtensionContext) {
         await webview.postMessage(pinned);
       }
     }).catch((error: unknown) => {
+      if (error instanceof UnsupportedProjectStorageError) {
+        sendProjectFeedback({ type: "projectLoadError", error: error.message, unsupportedStorage: true });
+        return;
+      }
       const detail = error instanceof Error ? error.message : String(error);
       sendProjectFeedback({ type: "projectLoadError", error: `Could not load projects. ${detail}` });
     });

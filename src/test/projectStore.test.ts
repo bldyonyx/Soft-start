@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import { cloneProject, ProjectActions } from "../projectActions";
 import { projectHostIdentity } from "../projectHost";
 import { ProjectJournal } from "../projectJournal";
-import { ProjectStore } from "../projectStore";
+import { ProjectStore, UnsupportedProjectStorageError, workspaceProjectStore } from "../projectStore";
 import { assertProjectOrigin, identifyProject, projectId, serializeUri } from "../projects";
 import { addPinnedProject, pinnedProjectsKey, selectProjectLocation } from "../pinnedProjects";
 import { recentProjectsKey } from "../recentProjects";
@@ -20,6 +20,26 @@ suite("Project origins and journal", () => {
   let path: string;
   setup(async () => { path = await mkdtemp(join(tmpdir(), "soft-start-journal-")); });
   teardown(async () => { await rm(path, { recursive: true, force: true }); });
+
+  for (const scheme of ["vscode-userdata", "custom"]) {
+    test(`rejects ${scheme} before reading legacy state or writing any journal`, async () => {
+      const historical = join(path, "undefined_publisher.soft-start", "projects-v2", host.key);
+      await new ProjectStore(new ProjectJournal(historical), host, legacy).pin(folder("historical"));
+      const files = (await readdir(historical)).sort();
+      const original = await Promise.all(files.map((name) => readFile(join(historical, name))));
+      const globalStorageUri = vscode.Uri.file(join(path, "bldyonyx.soft-start")).with({ scheme });
+      await assert.rejects(workspaceProjectStore({
+        globalStorageUri,
+        get globalState(): vscode.ExtensionContext["globalState"] {
+          return assert.fail("Unsupported storage must not read legacy state");
+        },
+      }), (error: unknown) => error instanceof UnsupportedProjectStorageError &&
+        /Pinned and recent projects cannot be saved or loaded/.test(error.message));
+      assert.deepEqual(await readdir(path), ["undefined_publisher.soft-start"]);
+      assert.deepEqual((await readdir(historical)).sort(), files);
+      assert.deepEqual(await Promise.all(files.map((name) => readFile(join(historical, name)))), original);
+    });
+  }
 
   test("distinguishes native paths on local, WSL distributions and SSH hosts", () => {
     const project = folder("same");

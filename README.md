@@ -24,6 +24,8 @@ During extension development, only windows that load the development extension c
 
 ## Project storage across windows
 
+Pinned and recent projects require native `file:` extension storage on the extension host. In headless testing of local Linux desktop VS Code 1.148.0, VS Code supplied a `vscode-userdata:` URI. When VS Code supplies an unsupported storage scheme, Soft Start cannot save or load pinned or recent projects in that window. It leaves existing data intact and skips legacy migration and publisher recovery there. New Project, Open Folder, Clone Repository, and dashboard Settings remain available. Remote–WSL windows with native `file:` storage continue to use the existing journal.
+
 Recent and pinned projects are shared by windows using the same Soft Start storage directory and host identity. Native paths are bound to the originating host. Soft Start preserves an explicit authority when VS Code provides one. Profiles, local installs, WSL distributions, and SSH hosts with separate stores do not synchronize their project histories. WSL uses the reported distro name and machine ID, and SSH uses the remote machine ID where available. If the host cannot be verified, Soft Start requires an explicitly addressed project.
 
 On first use, each store saves a versioned snapshot of the old project lists in `projects-v2/<host>/legacy.json` under VS Code's extension storage directory. The old VS Code state stays intact. Legacy entries with an unverified location remain visible. Use **Locate project** in the entry’s menu from a VS Code window connected to the correct location, or remove the entry if it is no longer useful. Keep the legacy state and journal files if the migration reports an error.

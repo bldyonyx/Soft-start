@@ -969,6 +969,26 @@ try {
   assert.equal(await evaluate("document.querySelector('main:not([hidden]) .accent')"), null);
   console.log("Decorative font assets, custom kaomojis, and decoration visibility passed.");
 
+  await send("Page.navigate", {url: `http://127.0.0.1:${server.address().port}/?unsupported-storage`});
+  await waitFor("location.search === '?unsupported-storage' && requests.some(({type}) => type === 'requestRecentProjects')");
+  const unavailable = "Pinned and recent projects cannot be saved or loaded in this VS Code window. Soft Start requires native filesystem storage for project history.";
+  await evaluate(`window.postMessage(${JSON.stringify({
+    type: "projectLoadError", error: unavailable, unsupportedStorage: true,
+  })}, '*')`);
+  await waitFor(`document.querySelector('.project-load-error [role=alert]')?.textContent === ${JSON.stringify(unavailable)}`);
+  assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('.project-columns .project-panel'), node => node.textContent.trim())"),
+    ["Projects unavailable", "Projects unavailable"]);
+  assert.equal(await evaluate("document.querySelector('.project-load-error button, .project-columns button, .project-loading-row')"), null);
+  for (const [index, action] of ["newProject", "openFolder", "cloneRepository"].entries()) {
+    await tabTo(`.utility-tile:nth-child(${index + 1}):enabled`);
+    await key(" ", 32);
+    await projectRequest("quickAction", { action });
+  }
+  await evaluate("reply = true; externalEdit({})");
+  await click(".settings-gear");
+  await waitFor("document.querySelector('#settings-title') && document.querySelector('#settings-save-state')?.textContent === 'Up to date'");
+  console.log("Unsupported project storage message and independent dashboard actions passed.");
+
   assert.deepEqual(errors, []);
   console.log("Settings browser interactions passed.");
 } finally {

@@ -11,3 +11,6 @@ webview/*.tsbuildinfo
 
 # Generated webview assets
 /media/
+
+# Private branding fonts
+/branding/fonts/

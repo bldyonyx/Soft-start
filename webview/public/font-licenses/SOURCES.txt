@@ -32,3 +32,14 @@ Notice: notoseriftibetan-OFL.txt
 decor-yi.woff2 (U+30FB, U+A4B1)
 https://github.com/google/fonts/tree/6ebe737e44fd64ee736bbc6feed6136a6dbfd222/ofl/notosansyi
 Notice: notosansyi-OFL.txt
+
+Soft Start Signature fonts
+
+PFPixelscriptPro-Regular.woff2
+Source: supplied original WOFF2 from Parachute Type Foundry.
+Notice: pixelscript-pro-NOTICE.txt
+
+Mali-Light.woff2, Mali-Regular.woff2, Mali-Medium.woff2
+Source: supplied original WOFF2 files from the Mali project.
+https://github.com/cadsondemak/Mali
+Notice: mali-OFL.txt

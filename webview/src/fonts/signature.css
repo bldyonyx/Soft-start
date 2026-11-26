@@ -1,0 +1,141 @@
+@font-face {
+  font-family: "PF Pixelscript Pro";
+  src: url("./PFPixelscriptPro-Regular.woff2?no-inline") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Mali";
+  src: url("./Mali-Light.woff2?no-inline") format("woff2");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Mali";
+  src: url("./Mali-Regular.woff2?no-inline") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Mali";
+  src: url("./Mali-Medium.woff2?no-inline") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+main.dashboard[aria-labelledby="dashboard-title"] .dashboard-brand > span:last-child {
+  font-family: "PF Pixelscript Pro", "Segoe UI", system-ui, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-synthesis: none;
+  font-size: 22px;
+  letter-spacing: 0px;
+  line-height: 1.2;
+}
+
+main.dashboard[aria-labelledby="dashboard-title"] #dashboard-title,
+main.settings-view .preview-window-content h3 {
+  font-family: "Mali", "Segoe UI", system-ui, sans-serif;
+  font-weight: 300;
+  font-style: normal;
+  font-synthesis: none;
+}
+
+main.dashboard[aria-labelledby="dashboard-title"] .section-title {
+  font-family: "PF Pixelscript Pro", "Segoe UI", system-ui, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-synthesis: none;
+  font-size: 20px;
+}
+
+main.dashboard[aria-labelledby="dashboard-title"] .recent-name {
+  font-family: "Mali", "Segoe UI", system-ui, sans-serif;
+  font-weight: 500;
+  font-style: normal;
+  font-synthesis: none;
+  font-size: 14px;
+}
+
+main.dashboard[aria-labelledby="dashboard-title"] .project-empty > span:not(.shortcut-icon),
+main.dashboard[aria-labelledby="dashboard-title"] .project-placeholder > span,
+main.dashboard[aria-labelledby="dashboard-title"] .recent-host,
+main.dashboard[aria-labelledby="dashboard-title"] .recent-path,
+main.dashboard[aria-labelledby="dashboard-title"] .project-row-message,
+main.dashboard[aria-labelledby="dashboard-title"] .project-action-message {
+  font-family: "Mali", "Segoe UI", system-ui, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-synthesis: none;
+}
+
+main.dashboard[aria-labelledby="dashboard-title"] .window-bar > span,
+main.settings-view .settings-preview .window-bar > span,
+main.dashboard[aria-labelledby="dashboard-title"] .recent-time,
+main.dashboard[aria-labelledby="dashboard-title"] .recent-view-all,
+main.dashboard[aria-labelledby="dashboard-title"] .recent-menu-items button,
+main.dashboard[aria-labelledby="dashboard-title"] .utility-tile > span:last-child {
+  font-family: "Mali", "Segoe UI", system-ui, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-synthesis: none;
+}
+
+main.dashboard[aria-labelledby="dashboard-title"] #dashboard-title > .accent,
+main.settings-view .preview-window-content h3 > .accent {
+  font-size: clamp(21.28px, 4.104vw, 27.36px);
+  font-synthesis: initial;
+  font-style: normal;
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+}
+
+main.dashboard[aria-labelledby="dashboard-title"] .section-title > .accent {
+  font-synthesis: initial;
+  font-style: normal;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+}
+
+main.settings-view #settings-title,
+main.settings-view #preview-title,
+main.settings-view legend h2 {
+  font-family: "PF Pixelscript Pro", "Segoe UI", system-ui, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-synthesis: none;
+  font-size: 20px;
+}
+
+main.settings-view #settings-title {
+  font-size: clamp(26px, 4.5vw, 32px);
+}
+
+main.settings-view :is(p, li, button, input, select, textarea, kbd, .settings-nav a, .settings-range-value),
+main.settings-view .settings-help strong {
+  font-family: "Mali", "Segoe UI", system-ui, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-synthesis: none;
+}
+
+main.settings-view :is(.settings-label, .settings-check > span) {
+  font-family: "Mali", "Segoe UI", system-ui, sans-serif;
+  font-weight: 500;
+  font-style: normal;
+  font-synthesis: none;
+}
+
+.soft-start-tooltip {
+  font-family: "Mali", "Segoe UI", system-ui, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  font-synthesis: none;
+}

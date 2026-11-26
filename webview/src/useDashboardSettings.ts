@@ -1,6 +1,6 @@
 import type { WelcomeState } from "../../src/startupPolicy";
 import { useEffect, useRef, useState } from "react";
-import { customizationKeys, defaultSettings, type DashboardSettings, type SettingKey, type SettingsPatch } from "../../src/dashboardSettings";
+import { customizationKeys, defaultSettings, isSettingValue, type DashboardSettings, type SettingKey, type SettingsPatch } from "../../src/dashboardSettings";
 import {
   isSettingsMessage, settingsHostMeta, settingsHostVersion, type SettingsMutation, type SettingsOutcome, type SettingsRequest,
 } from "../../src/webviewMessages";
@@ -8,7 +8,7 @@ import {
 type Post = (request: SettingsRequest) => void;
 type Operation = { requestId: string; mutation: SettingsMutation; draft: SettingsPatch };
 type Feedback = Omit<Pick<SettingsOutcome, "outcome" | "detail" | "writes">, "outcome"> &
-  { outcome: SettingsOutcome["outcome"] | "unknown" };
+  { outcome: SettingsOutcome["outcome"] | "unknown"; rejectedDirectory?: string };
 
 const replyTimeout = 8000;
 
@@ -21,7 +21,7 @@ export function useDashboardSettings(post: Post | undefined) {
   const [hostBusy, setHostBusy] = useState(false);
   const [syncError, setSyncError] = useState<string>();
   const [rechecking, setRechecking] = useState(false);
-  const [pending, setPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<SettingsMutation["type"]>();
   const [unknown, setUnknown] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>();
   const operation = useRef<Operation | undefined>(undefined);
@@ -67,9 +67,11 @@ export function useDashboardSettings(post: Post | undefined) {
       stopReading();
       window.clearTimeout(mutationTimer.current);
       operation.current = undefined;
-      setPending(false);
+      setPendingAction(undefined);
       setUnknown(false);
-      setFeedback(result);
+      const rejectedDirectory = active.mutation.type === "saveSettings" && result.writes?.rejected.projectsDirectory
+        ? active.mutation.changes.projectsDirectory : undefined;
+      setFeedback({ ...result, rejectedDirectory });
       const snapshot = authoritative;
       setDraft((current) => reconcileDraft(current, active, result, snapshot));
     }
@@ -90,7 +92,7 @@ export function useDashboardSettings(post: Post | undefined) {
         stopReading();
         if (active) {
           window.clearTimeout(mutationTimer.current);
-          setPending(false);
+          setPendingAction(undefined);
           setUnknown(true);
         }
         setReady(false);
@@ -111,7 +113,7 @@ export function useDashboardSettings(post: Post | undefined) {
         stopReading();
         window.clearTimeout(mutationTimer.current);
         operation.current = undefined;
-        setPending(false);
+        setPendingAction(undefined);
         setUnknown(false);
         setFeedback({ outcome: "unknown", detail: "Saved settings checked. The earlier action could not be confirmed. Review your remaining edits before retrying." });
         if (active.mutation.type === "saveSettings") {
@@ -146,10 +148,10 @@ export function useDashboardSettings(post: Post | undefined) {
     }
     const requestId = crypto.getRandomValues(new Uint32Array(4)).join("-");
     operation.current = { requestId, mutation, draft };
-    setPending(true);
+    setPendingAction(mutation.type);
     setFeedback(undefined);
     mutationTimer.current = window.setTimeout(() => {
-      setPending(false);
+      setPendingAction(undefined);
       setUnknown(true);
     }, replyTimeout);
     post({ ...mutation, requestId });
@@ -158,13 +160,30 @@ export function useDashboardSettings(post: Post | undefined) {
   const keys = (Object.keys(draft) as SettingKey[]).filter((key) => saved[key] !== draft[key]);
   const changes = Object.fromEntries(keys.map((key) => [key, draft[key]]));
   const expected = Object.fromEntries(keys.map((key) => [key, saved[key]]));
+  const colorDraft = {
+    backgroundColor: draft.backgroundColor ?? saved.backgroundColor,
+    accentColor: draft.accentColor ?? saved.accentColor,
+  };
+  const invalidColors = {
+    backgroundColor: !isSettingValue("backgroundColor", colorDraft.backgroundColor),
+    accentColor: !isSettingValue("accentColor", colorDraft.accentColor),
+  };
+  const canSave = !invalidColors.backgroundColor && !invalidColors.accentColor;
   return {
     saved,
+    colorDraft,
+    invalidColors,
+    canSave,
     welcome,
     welcomeGuidance,
-    preview: { ...saved, ...draft },
+    preview: {
+      ...saved, ...draft,
+      backgroundColor: invalidColors.backgroundColor ? saved.backgroundColor : colorDraft.backgroundColor,
+      accentColor: invalidColors.accentColor ? saved.accentColor : colorDraft.accentColor,
+    },
     dirty: keys.length > 0,
-    pending,
+    pending: Boolean(pendingAction),
+    pendingAction,
     unknown,
     rechecking,
     hostBusy,
@@ -176,7 +195,7 @@ export function useDashboardSettings(post: Post | undefined) {
     feedback,
     edit,
     save: () => {
-      if (keys.length) {
+      if (keys.length && canSave) {
         run({ type: "saveSettings", changes, expected });
       }
     },

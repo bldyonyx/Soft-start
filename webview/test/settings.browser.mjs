@@ -354,8 +354,57 @@ try {
   assert.equal(await evaluate("document.querySelector('fieldset').disabled"), false, "preview must work before a host reply");
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.settings-preview-artwork')).pointerEvents"), "none");
 
+  for (const width of [280, 320, 480, 640, 800, 1024, 1440]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile: false });
+    const dimensions = await evaluate(`(() => {
+      const root = document.documentElement;
+      const controls = [...document.querySelectorAll('.settings-view :is(input, select, button, a)')];
+      return {
+        width: innerWidth, overflow: root.scrollWidth - root.clientWidth,
+        clipped: controls.filter((control) => {
+          const rect = control.getBoundingClientRect();
+          return rect.left < 0 || rect.right > root.clientWidth || rect.width < 16 ||
+            (control.matches('button, a') && control.scrollWidth > control.clientWidth);
+        }).map((control) => control.textContent || control.outerHTML),
+        unlabeled: controls.filter((control) => control.matches('input, select') &&
+          !control.labels?.length && !control.getAttribute('aria-label')).length,
+      };
+    })()`);
+    assert.deepEqual(dimensions, { width, overflow: 0, clipped: [], unlabeled: 0 });
+    for (const section of ["appearance", "dashboard", "projects", "startup"]) {
+      await click(`.settings-nav a[href="#${section}-settings"]`);
+      assert.equal(await evaluate("document.activeElement.id"), `${section}-settings`);
+      assert.equal(await evaluate(`(() => {
+        const heading = document.activeElement.getBoundingClientRect();
+        const toolbar = document.querySelector('.settings-savebar').getBoundingClientRect();
+        const save = document.querySelector('.settings-save').getBoundingClientRect();
+        return heading.top >= toolbar.bottom && save.top >= 0 && save.bottom <= innerHeight;
+      })()`), true, `section ${section} at ${width}px`);
+    }
+    console.log(`Settings at ${width}px passed`);
+  }
+  await send("Emulation.clearDeviceMetricsOverride");
+  await click('.settings-nav a[href="#appearance-settings"]');
+  await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
+  assert.equal(await evaluate("document.activeElement.type"), "color");
+  assert.equal(await evaluate("getComputedStyle(document.activeElement).outlineStyle"), "solid");
+
+  const hexInput = ".settings-color .settings-hex";
+  await input(hexInput, "#ab");
+  await waitFor(`document.querySelector('${hexInput}').getAttribute('aria-invalid') === 'true'`);
+  assert.match(await evaluate("document.querySelector('.settings-save-state').textContent"), /Review color/);
+  assert.equal(await evaluate("token('--background')"), "#080709");
+  await click("[data-view-focus]");
+  await click(".settings-gear");
+  assert.equal(await evaluate(`document.querySelector('${hexInput}').value`), "#ab");
+  await input(hexInput, "#343045");
+  await waitFor("token('--background') === '#343045'");
+  assert.equal(await evaluate(`document.querySelector('${hexInput}').hasAttribute('aria-invalid')`), false);
+  assert.equal(await evaluate("document.querySelector('.settings-save-state').textContent"), "Unsaved changes");
+
   await click("fieldset:first-of-type .settings-field:nth-child(2) .settings-swatch:nth-child(2)");
   await waitFor("token('--background') === '#131b2a'");
+  assert.equal(await evaluate("document.querySelector('.settings-color .settings-swatch[aria-pressed=true]').textContent.trim()"), "Ink blue✓");
   await click("fieldset:first-of-type .settings-field:nth-child(3) .settings-swatch:nth-child(2)");
   await waitFor("token('--lavender') === 'rgb(160 216 242)'");
 
@@ -394,9 +443,16 @@ try {
   await click(".settings-status button");
   await waitFor("!document.querySelector('button[type=submit]').disabled");
   assert.equal(await evaluate("token('--background')"), "#343045", "sync must preserve the draft");
+  await input(hexInput, "#343");
+  await waitFor(`document.querySelector('${hexInput}').getAttribute('aria-invalid') === 'true'`);
+  assert.equal(await evaluate("document.querySelector('.settings-save').disabled"), true);
+  assert.equal(await evaluate("requests.some(({type}) => type === 'saveSettings')"), false);
+  await input(hexInput, "#343045");
+  await waitFor("!document.querySelector('.settings-save').disabled");
+
 
   await click("fieldset:nth-of-type(3) .settings-actions button:first-child");
-  await waitFor("document.querySelector('#directory-help').previousElementSibling.querySelector('input').value === '/home/test/projects'");
+  await waitFor("document.querySelector('#projects-directory').value === '/home/test/projects'");
   await click("fieldset:nth-of-type(3) .settings-actions button:last-child");
   await input("fieldset:nth-of-type(3) input", "/home/test/edited");
   await click("button[type=submit]");
@@ -406,10 +462,10 @@ try {
   assert.equal(await evaluate("document.activeElement.className"), "settings-gear");
   assert.equal(await evaluate("token('--background')"), "#343045");
   await click(".settings-gear");
-  await click(".settings-view form > .settings-actions button:last-child");
+  await click(".settings-reset button");
   await waitFor("document.querySelector('[role=status]')?.textContent === 'Defaults restored.'");
   assert.equal(await evaluate("token('--background')"), "#080709");
-  assert.match(await evaluate("document.querySelector('.settings-directory').textContent"), /\/home\/test\/edited/);
+  assert.equal(await evaluate("document.querySelector('#projects-directory').value"), "/home/test/edited");
   const startupSelect = "fieldset:nth-of-type(4) select";
   const replaceWelcome = "fieldset:nth-of-type(4) .settings-actions button:first-child";
   const restoreWelcome = "fieldset:nth-of-type(4) .settings-actions button:last-child";
@@ -420,7 +476,7 @@ try {
     select.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
   await input("fieldset:nth-of-type(3) input", "/home/test/unsaved");
-  await click(".settings-view form > .settings-actions button:last-child");
+  await click(".settings-reset button");
   await waitFor("document.querySelector('.settings-status p')?.textContent === 'Defaults restored.'");
   assert.equal(await evaluate(`document.querySelector('${startupSelect}').value`), "always");
   assert.equal(await evaluate("document.querySelector('fieldset:nth-of-type(3) input').value"), "/home/test/unsaved");
@@ -440,7 +496,7 @@ try {
   await waitFor("document.querySelector('[role=status]')?.textContent === 'Settings saved.'");
   assert.ok(await evaluate("requests.some(request => request.changes?.startupBehavior === 'always')"));
   assert.ok(await evaluate("requests.some(request => request.changes?.showStatusBarItem === true && request.expected.showStatusBarItem === false)"));
-  await click(".settings-view form > .settings-actions button:last-child");
+  await click(".settings-reset button");
   await waitFor("document.querySelector('[role=status]')?.textContent === 'Defaults restored.'");
   assert.equal(await evaluate(`document.querySelector('${startupSelect}').value`), "always");
   assert.equal(await evaluate(`document.querySelector('${statusBarToggle}').checked`), true);
@@ -516,6 +572,8 @@ try {
   assert.equal(await evaluate(`document.querySelector('${welcomeInput}').value`), "Keep this greeting");
   assert.equal(await evaluate(`document.querySelector('${directoryInput}').value`), "../invalid");
   assert.match(await evaluate("document.querySelector('.settings-status li').textContent"), /Projects directory/);
+  assert.equal(await evaluate("document.querySelector('#projects-directory').getAttribute('aria-invalid')"), "true");
+  assert.equal(await evaluate("document.querySelector('#directory-error').textContent"), "Use an absolute path");
 
   await input(directoryInput, "/home/test/edited");
   await input(backgroundInput, "#131b2a");

@@ -355,12 +355,14 @@
 }
 
 .recent-menu-items {
-  position: absolute;
-  z-index: 2;
-  inset-block-start: calc(100% + 4px);
-  inset-inline-end: 0;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--secondary);
   width: max-content;
-  max-width: min(190px, calc(100vw - 62px));
+  max-width: min(210px, calc(100% - 16px));
   padding: 4px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -370,8 +372,20 @@
 
 .recent-menu-items button {
   width: 100%;
-  padding: 5px 7px;
+  display: block;
+  min-height: 30px;
+  padding: 5px 8px;
   text-align: start;
+}
+
+.recent-menu-items button:focus-visible {
+  outline-offset: -2px;
+}
+
+.recent-menu-items button[data-destructive] {
+  border-radius: 0 0 4px 4px;
+  border-top: 1px solid var(--border);
+  color: var(--lavender);
 }
 
 .recent-view-all {
@@ -479,15 +493,21 @@
 }
 
 .pinned-row[data-dragging] {
-  opacity: 0.55;
+  opacity: 0.6;
+  outline: 1px dashed var(--lavender);
+  outline-offset: -2px;
 }
 
 .pinned-row[data-drop="before"] {
-  border-top-color: var(--lavender);
+  box-shadow: inset 0 2px var(--lavender);
 }
 
 .pinned-row[data-drop="after"] {
-  border-bottom-color: var(--lavender);
+  box-shadow: inset 0 -2px var(--lavender);
+}
+
+.recent-project-row[aria-busy="true"] {
+  border-color: var(--lavender);
 }
 
 .recent-pin {
@@ -685,4 +705,55 @@
 .settings-status ul {
   margin-block: 6px 0;
   padding-inline-start: 20px;
+}
+
+.project-empty-hint {
+  color: var(--muted);
+  font-size: 12px;
+  max-inline-size: 33ch;
+}
+
+.project-placeholder {
+  justify-content: center;
+  color: var(--secondary);
+  font-size: 13px;
+}
+
+.project-loading-row {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  min-height: 52px;
+  padding-inline: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--inner-surface);
+}
+
+.project-loading-row span {
+  width: min(42%, 120px);
+  height: 6px;
+  border-radius: 4px;
+  background: var(--border);
+}
+
+.project-loading-row span + span {
+  width: min(65%, 170px);
+}
+
+.project-load-error {
+  min-height: 0;
+  margin-block-start: clamp(24px, 5vw, 36px);
+}
+
+.project-load-error .project-action-message {
+  margin: 0;
+}
+
+.project-status:empty {
+  margin: 0;
+}
+
+.project-status {
+  color: var(--secondary);
 }

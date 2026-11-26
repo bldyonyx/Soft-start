@@ -3,14 +3,14 @@ import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { createProject } from "./newProject";
 import { workspaceProjectStore } from "./projectStore";
-import { cloneProject, ProjectActions } from "./projectActions";
+import { cloneProject, pendingProjectAction, ProjectActions } from "./projectActions";
 import { assertProjectOrigin, currentProject, openProject, presentProject, projectId } from "./projects";
 import { addPinnedProject, promptPinnedProjectName, selectProjectLocation } from "./pinnedProjects";
 import { DashboardPanel } from "./dashboardPanel";
 import { Startup, startupScope } from "./startup";
 import { onSettingsChanged, SettingsConfiguration } from "./settingsConfiguration";
 import { SettingsWebview } from "./settingsWebview";
-import { isDashboardMessage, settingsHostMeta, settingsHostVersion, type ProjectActionMessage, type ProjectActionTarget, type PinnedProjectsMessage, type RecentProjectsMessage } from "./webviewMessages";
+import { isDashboardMessage, settingsHostMeta, settingsHostVersion, type ProjectActionMessage, type ProjectActionTarget, type ProjectLoadError, type PinnedProjectsMessage, type RecentProjectsMessage } from "./webviewMessages";
 
 function getNonce(): string {
   return randomBytes(16).toString("base64");
@@ -80,15 +80,15 @@ export function activate(context: vscode.ExtensionContext) {
     });
   }
 
-  function sendProjectAction(message: ProjectActionMessage) {
+  function sendProjectFeedback(message: ProjectActionMessage | ProjectLoadError) {
     for (const webview of dashboards) {
-      void Promise.resolve(webview.postMessage(message)).catch((error: unknown) => {
-        console.error("Soft Start could not send project action status.", error);
+      void Promise.resolve().then(() => webview.postMessage(message)).catch((error: unknown) => {
+        console.error("Soft Start could not send project feedback.", error);
       });
     }
   }
 
-  const actions = new ProjectActions(sendProjectAction);
+  const actions = new ProjectActions(sendProjectFeedback);
   function refreshProjects() {
     if (!dashboards.size) {
       return Promise.resolve();
@@ -99,14 +99,17 @@ export function activate(context: vscode.ExtensionContext) {
       const history: RecentProjectsMessage = { type: "recentProjects",
         projects: recent.map((entry) => ({ ...presentProject(entry), lastOpened: entry.lastOpened })) };
       const pinned: PinnedProjectsMessage = { type: "pinnedProjects",
-        projects: pins.map((entry) => presentProject({ ...entry, name: entry.displayName ?? entry.name })) };
+        projects: pins.map((entry) => ({
+          ...presentProject({ ...entry, name: entry.displayName ?? entry.name }),
+          canRestoreName: Boolean(entry.displayName),
+        })) };
       for (const webview of dashboards) {
         await webview.postMessage(history);
         await webview.postMessage(pinned);
       }
     }).catch((error: unknown) => {
       const detail = error instanceof Error ? error.message : String(error);
-      sendProjectAction(actions.status(`Could not refresh projects. ${detail}`, { section: "pins" }));
+      sendProjectFeedback({ type: "projectLoadError", error: `Could not load projects. ${detail}` });
     });
     return refreshing;
   }
@@ -198,6 +201,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const target: ProjectActionTarget = {
         section: message.type === "quickAction" ? "quick" :
+          message.type === "unpinProject" ? message.section ?? "pins" :
           message.type.endsWith("RecentProject") || message.type === "viewAllRecentProjects" ? "recent" : "pins",
         id: "id" in message ? message.id : undefined,
       };
@@ -223,10 +227,9 @@ export function activate(context: vscode.ExtensionContext) {
           switch (message.type) {
             case "removeRecentProject":
               await store.forget(message.id);
-              return;
+              return "Project removed from Recent Projects.";
             case "addPinnedProject":
-              await addPinnedProject(store);
-              return;
+              return await addPinnedProject(store) ? "Project is in Pinned Projects." : undefined;
             case "locatePinnedProject":
             case "locateRecentProject": {
               const list = message.type === "locatePinnedProject" ? "pins" : "recent";
@@ -237,6 +240,7 @@ export function activate(context: vscode.ExtensionContext) {
               const selection = await selectProjectLocation(original.kind, undefined, true);
               if (selection) {
                 await store.locate(list, original.id, selection);
+                return "Project location confirmed.";
               }
               return;
             }
@@ -246,24 +250,43 @@ export function activate(context: vscode.ExtensionContext) {
                 throw new Error("This project is no longer in Soft Start’s recent history.");
               }
               await store.pin(project);
-              return;
+              return "Project is pinned.";
             }
             case "unpinProject":
               await store.unpin(message.id);
-              return;
-            case "reorderPinnedProjects":
+              return "Project unpinned.";
+            case "reorderPinnedProjects": {
               await store.reorder(message.ids);
-              return;
+              if (!message.id) {
+                return "Pinned projects reordered.";
+              }
+              const { pins } = await store.read();
+              const position = pins.findIndex(({ id }) => id === message.id);
+              if (position === -1) {
+                throw new Error("This pin was removed in another window.");
+              }
+              const project = pins[position];
+              return `${project.displayName ?? project.name} moved to position ${position + 1} of ${pins.length}.`;
+            }
+            case "restorePinnedProjectName":
             case "renamePinnedProject": {
               const project = (await store.read()).pins.find(({ id }) => id === message.id);
               if (!project) {
                 throw new Error("This project is no longer pinned.");
               }
-              const name = await promptPinnedProjectName(project);
-              if (name !== undefined) {
-                await store.rename(project, name);
+              const name = message.type === "restorePinnedProjectName" ? "" : await promptPinnedProjectName(project);
+              const trimmed = name?.trim();
+              if (trimmed === undefined || trimmed === (project.displayName ?? project.name)) {
+                return;
               }
-              return;
+              await store.rename(project, trimmed);
+              const expected = trimmed && trimmed !== project.name ? trimmed : undefined;
+              const updated = (await store.read()).pins.find(({ id }) => id === project.id);
+              if (updated?.pinnedAt !== project.pinnedAt || updated.displayName !== expected) {
+                throw new Error("The pin changed in another window. Review the current name and try again.");
+              }
+              return !expected
+                ? "Original project name restored." : "Pinned project renamed.";
             }
           }
 
@@ -285,7 +308,7 @@ export function activate(context: vscode.ExtensionContext) {
             id = message.id;
           }
           if (id) {
-            focus({ ...target, id });
+            focus({ ...target, id }, "Opening project…");
             const latest = await store.read();
             const project = (fromPins ? latest.pins : latest.recent).find((entry) => entry.id === id);
             if (!project) {
@@ -294,11 +317,12 @@ export function activate(context: vscode.ExtensionContext) {
             assertProjectOrigin(project, store.host);
             await openProject(project);
             // The destination host records the workspace after VS Code opens it.
+            return "Open request accepted by VS Code.";
           }
         } finally {
           await refreshProjects();
         }
-      }, target);
+      }, target, pendingProjectAction(message));
     });
     panel.onDidDispose(() => {
       disposed = true;

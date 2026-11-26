@@ -10,6 +10,7 @@ export type ProjectItem = {
   hostLabel?: string;
   kind: ProjectKind;
   unresolved?: boolean;
+  canRestoreName?: boolean;
 };
 
 export type RecentProjectItem = ProjectItem & { lastOpened: number };
@@ -21,7 +22,8 @@ export type SettingsMutation =
   | { type: "saveSettings"; changes: SettingsPatch; expected: SettingsPatch }
   | { type: "restoreSettings" }
   | { type: "browseProjectsDirectory" }
-  | { type: "enableWelcomeReplacement" | "restoreWelcomeReplacement" };
+  | { type: "enableWelcomeReplacement" }
+  | { type: "restoreWelcomeReplacement" };
 
 export type SettingsRequest =
   | { type: "requestSettings"; recover?: string }
@@ -53,14 +55,23 @@ export type SettingsMessage =
   | ({ type: "settingsResult" } & SettingsSnapshot & SettingsOutcome)
   | { type: "settingsLoadError"; revision: number; error: string };
 
-export type DashboardMessage =
-  | SettingsRequest
+export type ProjectRequest =
   | QuickActionMessage
-  | { type: "requestRecentProjects" | "viewAllRecentProjects" }
-  | { type: "addPinnedProject" }
+  | { type: "viewAllRecentProjects" | "addPinnedProject" }
   | { type: "openRecentProject" | "removeRecentProject" | "pinRecentProject" |
-      "openPinnedProject" | "renamePinnedProject" | "unpinProject" | "locatePinnedProject" | "locateRecentProject"; id: string }
-  | { type: "reorderPinnedProjects"; ids: string[] };
+      "openPinnedProject" | "renamePinnedProject" | "restorePinnedProjectName" |
+      "locatePinnedProject" | "locateRecentProject"; id: string }
+  | { type: "unpinProject"; id: string; section?: "recent" | "pins" }
+  | { type: "reorderPinnedProjects"; ids: string[]; id?: string };
+
+export type DashboardMessage = SettingsRequest | ProjectRequest | { type: "requestRecentProjects" };
+
+export type ProjectLoadError = { type: "projectLoadError"; error: string };
+
+export function isProjectLoadError(value: unknown): value is ProjectLoadError {
+  return typeof value === "object" && value !== null &&
+    "type" in value && value.type === "projectLoadError" && "error" in value && typeof value.error === "string";
+}
 
 export type RecentProjectsMessage = { type: "recentProjects"; projects: RecentProjectItem[] };
 
@@ -68,7 +79,7 @@ export type PinnedProjectsMessage = { type: "pinnedProjects"; projects: ProjectI
 
 export type ProjectActionTarget = { section: "pins" | "recent" | "quick"; id?: string };
 
-export type ProjectActionMessage = { type: "projectAction"; busy: boolean; error?: string; target?: ProjectActionTarget };
+export type ProjectActionMessage = { type: "projectAction"; busy: boolean; error?: string; detail?: string; target?: ProjectActionTarget };
 
 function isProjectActionTarget(value: unknown): value is ProjectActionTarget {
   return typeof value === "object" && value !== null && "section" in value &&
@@ -80,6 +91,7 @@ export function isProjectActionMessage(value: unknown): value is ProjectActionMe
   return typeof value === "object" && value !== null &&
     "type" in value && value.type === "projectAction" && "busy" in value && typeof value.busy === "boolean" &&
     (!("error" in value) || value.error === undefined || typeof value.error === "string") &&
+    (!("detail" in value) || value.detail === undefined || typeof value.detail === "string") &&
     (!("target" in value) || value.target === undefined || isProjectActionTarget(value.target));
 }
 
@@ -124,13 +136,17 @@ export function isDashboardMessage(value: unknown): value is DashboardMessage {
     case "pinRecentProject":
     case "openPinnedProject":
     case "renamePinnedProject":
+    case "restorePinnedProjectName":
     case "locatePinnedProject":
     case "locateRecentProject":
-    case "unpinProject":
       return "id" in value && isProjectId(value.id);
+    case "unpinProject":
+      return "id" in value && isProjectId(value.id) &&
+        (!("section" in value) || value.section === "pins" || value.section === "recent");
     case "reorderPinnedProjects":
       return "ids" in value && Array.isArray(value.ids) &&
-        Array.from(value.ids).every(isProjectId) && new Set(value.ids).size === value.ids.length;
+        Array.from(value.ids).every(isProjectId) && new Set(value.ids).size === value.ids.length &&
+        (!("id" in value) || (isProjectId(value.id) && value.ids.includes(value.id)));
     default:
       return false;
   }
@@ -141,6 +157,7 @@ function isProjectItem(value: unknown): value is ProjectItem {
     "id" in value && isProjectId(value.id) &&
     "name" in value && typeof value.name === "string" &&
     "path" in value && typeof value.path === "string" &&
+    (!("canRestoreName" in value) || typeof value.canRestoreName === "boolean") &&
     (!("hostLabel" in value) || typeof value.hostLabel === "string") &&
     "kind" in value && (value.kind === "folder" || value.kind === "workspace") &&
     (!("unresolved" in value) || typeof value.unresolved === "boolean");

@@ -251,6 +251,25 @@ suite("Project origins and journal", () => {
 });
 
 suite("Project action feedback", () => {
+  test("publishes targeted pending feedback and only announces success after completion", async () => {
+    const messages: ReturnType<ProjectActions["status"]>[] = [];
+    const actions = new ProjectActions((message) => messages.push(message));
+    const target = { section: "pins", id: "a".repeat(64) } as const;
+    let finish!: (detail?: string) => void;
+    const running = actions.run(() => new Promise<string | undefined>((resolve) => { finish = resolve; }),
+      target, "Moving pinned project…");
+    assert.deepEqual(messages.map(({ busy, detail, target }) => ({ busy, detail, target })),
+      [{ busy: true, detail: "Moving pinned project…", target }]);
+    finish("Example moved to position 2 of 3.");
+    await running;
+    assert.equal(messages.at(-1)?.detail, "Example moved to position 2 of 3.");
+    assert.equal(messages.at(-1)?.busy, false);
+
+    await actions.run(async () => undefined, target, "Adding pinned project…");
+    assert.equal(messages.at(-1)?.detail, undefined);
+    assert.equal(messages.at(-1)?.error, undefined);
+  });
+
   test("announces busy status, rejects overlapping work, and reports failures", async () => {
     const messages: string[] = [];
     const actions = new ProjectActions(({ busy, error }) => messages.push(error ?? (busy ? "busy" : "idle")));

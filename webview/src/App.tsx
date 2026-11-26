@@ -1,6 +1,6 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { QuickActionMessage } from "../../src/quickActions";
-import { isPinnedProjectsMessage, isProjectActionMessage, isRecentProjectsMessage, type DashboardMessage, type SettingsRequest, type ProjectActionMessage, type ProjectItem, type RecentProjectItem } from "../../src/webviewMessages";
+import { isPinnedProjectsMessage, isProjectActionMessage, isProjectLoadError, isRecentProjectsMessage, type DashboardMessage, type SettingsRequest, type ProjectActionMessage, type ProjectRequest, type ProjectItem, type RecentProjectItem } from "../../src/webviewMessages";
 import { visibleRecentProjects, type DashboardSettings } from "../../src/dashboardSettings";
 import { applyDashboardTheme } from "./dashboardTheme";
 import { SettingsView } from "./SettingsView";
@@ -55,7 +55,7 @@ function DashboardSection({
 }) {
   return (
     <section className="dashboard-section" aria-labelledby={id}>
-      <h2 id={id} className="section-title">
+      <h2 id={id} className="section-title" tabIndex={-1}>
         {title}
         {accent && <Accent>{accent}</Accent>}
       </h2>
@@ -83,16 +83,62 @@ function formatLastOpened(timestamp: number, now: number) {
   return "Just now";
 }
 
-type ProjectAction = { label: string; run: () => void; disabled?: boolean };
+type SendProject = (request: ProjectRequest) => void;
+type ProjectAction = { label: string; run: () => void; disabled?: boolean; destructive?: boolean };
 
 function ProjectMenu({ name, actions }: { name: string; actions: ProjectAction[] }) {
   const [expanded, setExpanded] = useState(false);
   const menuId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
-  const closeMenu = () => {
+  const popup = useRef<HTMLDivElement>(null);
+  const closeMenu = useCallback(() => {
     setExpanded(false);
-    trigger.current?.focus();
-  };
+    trigger.current?.focus({ preventScroll: true });
+  }, []);
+
+  useLayoutEffect(() => {
+    const anchor = trigger.current;
+    const menu = popup.current;
+    if (!expanded || !anchor || !menu) {
+      return;
+    }
+
+    function position() {
+      if (!anchor || !menu) return;
+      const { top, bottom, right } = anchor.getBoundingClientRect();
+      const viewport = document.documentElement;
+      const below = viewport.clientHeight - bottom - 12;
+      const above = top - 12;
+      const openAbove = below < menu.scrollHeight + 2 && above > below;
+      menu.style.maxHeight = `${Math.max(0, openAbove ? above : below)}px`;
+      menu.style.left = `${Math.max(8, Math.min(right - menu.offsetWidth, viewport.clientWidth - menu.offsetWidth - 8))}px`;
+      menu.style.top = `${openAbove ? top - menu.offsetHeight - 4 : bottom + 4}px`;
+    }
+
+    function dismissOutside(event: PointerEvent) {
+      if (event.target instanceof Node && !anchor?.parentElement?.contains(event.target)) {
+        closeMenu();
+        window.requestAnimationFrame(() => {
+          if (document.activeElement === document.body && anchor?.isConnected) {
+            anchor.focus({ preventScroll: true });
+          }
+        });
+      }
+    }
+
+    menu.showPopover();
+    position();
+    menu.querySelector<HTMLButtonElement>("button:enabled")?.focus({ preventScroll: true });
+    document.addEventListener("pointerdown", dismissOutside);
+    window.addEventListener("resize", position);
+    window.addEventListener("scroll", position, true);
+    return () => {
+      menu.hidePopover();
+      document.removeEventListener("pointerdown", dismissOutside);
+      window.removeEventListener("resize", position);
+      window.removeEventListener("scroll", position, true);
+    };
+  }, [closeMenu, expanded]);
 
   return (
     <div
@@ -103,9 +149,18 @@ function ProjectMenu({ name, actions }: { name: string; actions: ProjectAction[]
         }
       }}
       onKeyDown={(event) => {
-        if (expanded && event.key === "Escape") {
+        if (!expanded) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
           event.stopPropagation();
           closeMenu();
+        } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          const buttons = Array.from(popup.current?.querySelectorAll<HTMLButtonElement>("button:enabled") ?? []);
+          if (buttons.length === 0) return;
+          event.preventDefault();
+          const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+          const next = event.key === "ArrowDown" ? (index + 1) % buttons.length : (index <= 0 ? buttons.length - 1 : index - 1);
+          buttons[next].focus();
         }
       }}
     >
@@ -116,13 +171,14 @@ function ProjectMenu({ name, actions }: { name: string; actions: ProjectAction[]
         aria-label={`Actions for ${name}`}
         aria-expanded={expanded}
         aria-controls={menuId}
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => expanded ? closeMenu() : setExpanded(true)}
       >
         <Icon name="more" />
       </button>
-      <div id={menuId} className="recent-menu-items" hidden={!expanded}>
-        {actions.map(({ label, run, disabled }) => (
-          <button key={label} type="button" disabled={disabled} onClick={() => { closeMenu(); run(); }}>
+      <div ref={popup} id={menuId} className="recent-menu-items" popover="manual" hidden={!expanded}>
+        {actions.map(({ label, run, disabled, destructive }) => (
+          <button key={label} type="button" disabled={disabled} data-destructive={destructive || undefined}
+            onClick={() => { closeMenu(); run(); }}>
             {label}
           </button>
         ))}
@@ -155,10 +211,10 @@ function ProjectFeedback({ project, error }: { project: ProjectItem; error?: str
   </>;
 }
 
-function RecentProjectRow({ project, now, pinned, error }: { project: RecentProjectItem; now: number; pinned: boolean; error?: string }) {
-  const open = () => vscode?.postMessage({ type: "openRecentProject", id: project.id });
+function RecentProjectRow({ project, now, pinned, error, pending, send }: { project: RecentProjectItem; now: number; pinned: boolean; error?: string; pending: boolean; send: SendProject }) {
+  const open = () => send({ type: "openRecentProject", id: project.id });
   return (
-    <li className="recent-row recent-project-row">
+    <li className="recent-row recent-project-row" aria-busy={pending || undefined}>
       <ProjectOpenButton project={project} open={open} pinned={pinned} />
       <time
         className="recent-time"
@@ -169,34 +225,34 @@ function RecentProjectRow({ project, now, pinned, error }: { project: RecentProj
       </time>
       <ProjectMenu name={project.name} actions={[
         project.unresolved
-          ? { label: "Locate project", run: () => vscode?.postMessage({ type: "locateRecentProject", id: project.id }) }
+          ? { label: "Locate project", run: () => send({ type: "locateRecentProject", id: project.id }) }
           : { label: "Open project", run: open },
-        { disabled: project.unresolved, label: pinned ? "Unpin project" : "Pin project", run: () => vscode?.postMessage({
-          type: pinned ? "unpinProject" : "pinRecentProject", id: project.id,
+        { disabled: project.unresolved, label: pinned ? "Unpin project" : "Pin project", destructive: pinned, run: () => send({
+          ...(pinned ? { type: "unpinProject", section: "recent" } : { type: "pinRecentProject" }), id: project.id,
         }) },
-        { label: "Remove from recent projects", run: () => vscode?.postMessage({ type: "removeRecentProject", id: project.id }) },
+        { label: "Remove from recent projects", destructive: true, run: () => send({ type: "removeRecentProject", id: project.id }) },
       ]} />
       <ProjectFeedback project={project} error={error} />
     </li>
   );
 }
 
-function PinnedProjectsPanel({ projects, busy, action }: { projects: ProjectItem[]; busy: boolean; action: ProjectActionMessage }) {
+function PinnedProjectsPanel({ projects, action, send }: { projects: ProjectItem[]; action: ProjectActionMessage; send: SendProject }) {
   const [drag, setDrag] = useState<{ id: string; over?: string }>();
   const source = drag ? projects.findIndex(({ id }) => id === drag.id) : -1;
 
   function move(from: number, to: number) {
-    if (busy || from < 0 || to < 0 || to >= projects.length || from === to) {
+    if (action.busy || from < 0 || to < 0 || to >= projects.length || from === to) {
       return;
     }
     const ids = projects.map(({ id }) => id);
     const [id] = ids.splice(from, 1);
     ids.splice(to, 0, id);
-    vscode?.postMessage({ type: "reorderPinnedProjects", ids });
+    send({ type: "reorderPinnedProjects", ids, id });
   }
 
   function allowDrop(event: DragEvent<HTMLLIElement>, id: string) {
-    if (!busy && drag && source >= 0 && drag.id !== id) {
+    if (!action.busy && drag && source >= 0 && drag.id !== id) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
       if (drag.over !== id) {
@@ -210,13 +266,14 @@ function PinnedProjectsPanel({ projects, busy, action }: { projects: ProjectItem
       {projects.length ? (
         <ul className="recent-list">
           {projects.map((project, index) => {
-            const open = () => vscode?.postMessage({ type: "openPinnedProject", id: project.id });
+            const open = () => send({ type: "openPinnedProject", id: project.id });
             const dragging = drag?.id === project.id;
             const over = drag?.over === project.id && source >= 0;
             return (
               <li
                 key={project.id}
                 className="recent-row recent-project-row pinned-row"
+                aria-busy={(action.busy && action.target?.section === "pins" && action.target.id === project.id) || undefined}
                 data-dragging={dragging || undefined}
                 data-drop={over ? (source < index ? "after" : "before") : undefined}
                 onDragOver={(event) => allowDrop(event, project.id)}
@@ -237,10 +294,12 @@ function PinnedProjectsPanel({ projects, busy, action }: { projects: ProjectItem
                   className="pinned-drag-handle"
                   title="Drag to reorder"
                   aria-hidden="true"
-                  draggable={!busy}
+                  draggable={!action.busy}
                   onDragStart={(event) => {
                     event.dataTransfer.effectAllowed = "move";
                     event.dataTransfer.setData("text/plain", project.id);
+                    const row = event.currentTarget.closest("li");
+                    if (row) event.dataTransfer.setDragImage(row, 16, 16);
                     setDrag({ id: project.id });
                   }}
                   onDragEnd={() => setDrag(undefined)}
@@ -250,12 +309,13 @@ function PinnedProjectsPanel({ projects, busy, action }: { projects: ProjectItem
                 <ProjectOpenButton project={project} open={open} />
                 <ProjectMenu name={project.name} actions={[
                   project.unresolved
-                    ? { label: "Locate project", run: () => vscode?.postMessage({ type: "locatePinnedProject", id: project.id }) }
+                    ? { label: "Locate project", run: () => send({ type: "locatePinnedProject", id: project.id }) }
                     : { label: "Open project", run: open },
-                  { label: "Rename", run: () => vscode?.postMessage({ type: "renamePinnedProject", id: project.id }) },
+                  { label: "Rename", run: () => send({ type: "renamePinnedProject", id: project.id }) },
+                  ...(project.canRestoreName ? [{ label: "Restore original name", run: () => send({ type: "restorePinnedProjectName", id: project.id }) }] : []),
                   { label: "Move up", disabled: index === 0, run: () => move(index, index - 1) },
                   { label: "Move down", disabled: index === projects.length - 1, run: () => move(index, index + 1) },
-                  { label: "Unpin project", run: () => vscode?.postMessage({ type: "unpinProject", id: project.id }) },
+                  { label: "Unpin project", destructive: true, run: () => send({ type: "unpinProject", id: project.id }) },
                 ]} />
                 <ProjectFeedback project={project} error={action.target?.section === "pins" && action.target.id === project.id ? action.error : undefined} />
               </li>
@@ -266,10 +326,11 @@ function PinnedProjectsPanel({ projects, busy, action }: { projects: ProjectItem
         <div className="project-empty">
           <span className="shortcut-icon"><Icon name="pin" /></span>
           <span>No pinned projects</span>
+          <span className="project-empty-hint">Use Add project to pin a folder or workspace.</span>
         </div>
       )}
       <button type="button" className="recent-view-all" disabled={!vscode}
-        onClick={() => vscode?.postMessage({ type: "addPinnedProject" })}>
+        onClick={() => send({ type: "addPinnedProject" })}>
         Add project
       </button>
       {action.target?.section === "pins" && !projects.some(({ id }) => id === action.target?.id) && action.error &&
@@ -278,45 +339,109 @@ function PinnedProjectsPanel({ projects, busy, action }: { projects: ProjectItem
   );
 }
 
+function ProjectPlaceholder({ loading }: { loading: boolean }) {
+  return (
+    <div className="project-panel project-placeholder" aria-busy={loading || undefined}>
+      {loading ? (
+        <div className="project-loading-row" aria-hidden="true"><span /><span /></div>
+      ) : <span>Projects unavailable</span>}
+    </div>
+  );
+}
+
 function useProjectLists() {
-  const [recent, setRecent] = useState<RecentProjectItem[]>([]);
-  const [pinned, setPinned] = useState<ProjectItem[]>([]);
+  const [recent, setRecent] = useState<RecentProjectItem[] | undefined>(vscode ? undefined : []);
+  const [pinned, setPinned] = useState<ProjectItem[] | undefined>(vscode ? undefined : []);
+  const [loadError, setLoadError] = useState<string>();
+  const loadTimer = useRef<number>(undefined);
   const [now, setNow] = useState(Date.now);
   const [action, setAction] = useState<ProjectActionMessage>({ type: "projectAction", busy: false });
+  const locked = useRef(false);
+  const focusOrigin = useRef<{ control: HTMLElement; section: HTMLElement }>(undefined);
+
+  const load = useCallback(() => {
+    window.clearTimeout(loadTimer.current);
+    loadTimer.current = window.setTimeout(() => setLoadError("Soft Start is still waiting for project data."), 12000);
+    vscode?.postMessage({ type: "requestRecentProjects" });
+  }, []);
+
+  const send: SendProject = (request) => {
+    if (!vscode || locked.current) return;
+    locked.current = true;
+    const control = document.activeElement;
+    const section = control?.closest(".dashboard-section")?.querySelector<HTMLElement>(".section-title");
+    if (control instanceof HTMLElement && section) {
+      focusOrigin.current = { control, section };
+    }
+    try {
+      vscode.postMessage(request);
+    } catch {
+      locked.current = false;
+      focusOrigin.current = undefined;
+      setAction({ type: "projectAction", busy: false, error: "Could not send the project action. Try again." });
+    }
+  };
+
+  useLayoutEffect(() => {
+    const origin = focusOrigin.current;
+    if (!origin) return;
+    if (document.activeElement === document.body && !origin.section.closest("[hidden]")) {
+      (origin.control.isConnected ? origin.control : origin.section).focus({ preventScroll: true });
+    }
+    if (!locked.current) focusOrigin.current = undefined;
+  }, [action, pinned, recent]);
 
   useEffect(() => {
-    if (!vscode) {
-      return;
-    }
-
+    if (!vscode) return;
+    let haveRecent = false;
+    let havePins = false;
     const receive = (event: MessageEvent<unknown>) => {
       if (isRecentProjectsMessage(event.data)) {
+        haveRecent = true;
         setRecent(event.data.projects);
         setNow(Date.now());
       } else if (isPinnedProjectsMessage(event.data)) {
+        havePins = true;
         setPinned(event.data.projects);
+      } else if (isProjectLoadError(event.data)) {
+        window.clearTimeout(loadTimer.current);
+        setLoadError(event.data.error);
+        return;
       } else if (isProjectActionMessage(event.data)) {
+        locked.current = event.data.busy;
         setAction(event.data);
+        return;
+      } else {
+        return;
+      }
+      if (haveRecent && havePins) {
+        window.clearTimeout(loadTimer.current);
+        setLoadError(undefined);
       }
     };
     window.addEventListener("message", receive);
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    vscode.postMessage({ type: "requestRecentProjects" });
+    load();
     return () => {
       window.removeEventListener("message", receive);
       window.clearInterval(timer);
+      window.clearTimeout(loadTimer.current);
     };
-  }, []);
+  }, [load]);
 
-  return { recent, pinned, now, action };
+  return { recent, pinned, now, action, loadError, send, retry: () => {
+    setLoadError(undefined);
+    load();
+  } };
 }
 
-function RecentProjectsPanel({ projects, pinned, now, limit, action }: {
+function RecentProjectsPanel({ projects, pinned, now, limit, action, send }: {
   projects: RecentProjectItem[];
   pinned: Set<string>;
   now: number;
   limit: number;
   action: ProjectActionMessage;
+  send: SendProject;
 }) {
   const visible = visibleRecentProjects(projects, limit);
   const errorId = action.target?.section === "recent" ? action.target.id : undefined;
@@ -325,20 +450,21 @@ function RecentProjectsPanel({ projects, pinned, now, limit, action }: {
       {projects.length ? (
         <ul className="recent-list">
           {visible.map((project) => (
-            <RecentProjectRow key={project.id} project={project} now={now} pinned={pinned.has(project.id)} error={errorId === project.id ? action.error : undefined} />
+            <RecentProjectRow key={project.id} project={project} now={now} pinned={pinned.has(project.id)} error={errorId === project.id ? action.error : undefined} pending={action.busy && errorId === project.id} send={send} />
           ))}
         </ul>
       ) : (
         <div className="project-empty">
           <span className="shortcut-icon"><Icon name="clock" /></span>
           <span>No recent projects</span>
+          <span className="project-empty-hint">Open projects while Soft Start is active to see them here.</span>
         </div>
       )}
       {projects.length > limit && (
         <button
           className="recent-view-all"
           type="button"
-          onClick={() => vscode?.postMessage({ type: "viewAllRecentProjects" })}
+          onClick={() => send({ type: "viewAllRecentProjects" })}
         >
           View all recent projects
         </button>
@@ -373,7 +499,8 @@ function WelcomeWindow({ settings, preview = false }: { settings: DashboardSetti
 const postSettings = vscode && ((message: SettingsRequest) => vscode.postMessage(message));
 
 function App() {
-  const { recent, pinned, now, action: projectAction } = useProjectLists();
+  const { recent, pinned, now, action: projectAction, retry, loadError, send } = useProjectLists();
+  const listsReady = recent !== undefined && pinned !== undefined;
   const settings = useDashboardSettings(postSettings);
   const [showSettings, setShowSettings] = useState(false);
   const settingsButton = useRef<HTMLButtonElement>(null);
@@ -381,8 +508,8 @@ function App() {
   const active = showSettings ? settings.preview : settings.saved;
   const { backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity } = active;
   const symbols = settings.saved.decorativeSymbols;
-  const recentCount = Math.min(recent.length, settings.saved.recentProjectsLimit);
-  const balancePanels = Math.abs(pinned.length - recentCount) <= 1;
+  const recentCount = Math.min(recent?.length ?? 0, settings.saved.recentProjectsLimit);
+  const balancePanels = Math.abs((pinned?.length ?? 0) - recentCount) <= 1;
 
   useLayoutEffect(() => applyDashboardTheme({ backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity }),
     [backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity]);
@@ -424,13 +551,22 @@ function App() {
               event.stopPropagation();
             }
           }}>
+          {loadError && <div className="project-load-error project-panel">
+            <p className="project-action-message" role="alert">{loadError}</p>
+            <button type="button" className="recent-view-all" onClick={() => {
+              document.getElementById("pinned-projects")?.focus({ preventScroll: true });
+              retry();
+            }}>Retry loading projects</button>
+          </div>}
           <div className="project-columns" data-balanced={balancePanels || undefined}>
             <DashboardSection id="pinned-projects" title="Pinned projects" accent={symbols ? "ഒ" : undefined}>
-              <PinnedProjectsPanel projects={pinned} busy={projectAction.busy} action={projectAction} />
+              {listsReady ? <PinnedProjectsPanel projects={pinned} action={projectAction} send={send} /> :
+                <ProjectPlaceholder loading={!loadError} />}
             </DashboardSection>
 
             <DashboardSection id="recent-projects" title="Recent projects" accent={symbols ? "⸝⸝" : undefined}>
-              <RecentProjectsPanel projects={recent} action={projectAction} now={now} limit={settings.saved.recentProjectsLimit} pinned={new Set(pinned.map(({ id }) => id))} />
+              {listsReady ? <RecentProjectsPanel projects={recent} action={projectAction} now={now} limit={settings.saved.recentProjectsLimit} pinned={new Set(pinned.map(({ id }) => id))} send={send} /> :
+                <ProjectPlaceholder loading={!loadError} />}
             </DashboardSection>
           </div>
 
@@ -442,7 +578,7 @@ function App() {
                   className="utility-tile"
                   key={action}
                   disabled={!vscode}
-                  onClick={() => vscode?.postMessage({ type: "quickAction", action })}
+                  onClick={() => send({ type: "quickAction", action })}
                 >
                   <span className="shortcut-icon"><Icon name={icon} /></span>
                   <span>{label}</span>
@@ -452,7 +588,10 @@ function App() {
           </DashboardSection>
         </div>
         {(!projectAction.target || projectAction.target.section === "quick") && projectAction.error && <p className="project-action-message" role="alert">{projectAction.error}</p>}
-        {projectAction.busy && <p className="project-action-message" role="status">Working on a project action…</p>}
+        {!showSettings && <p className="project-action-message project-status" role="status">
+          {projectAction.detail ?? (projectAction.busy ? "Working on a project action…" :
+            !listsReady && !loadError ? "Loading projects…" : "")}
+        </p>}
       </main>
       {showSettings && (
         <SettingsView settings={settings} back={() => setShowSettings(false)} preview={

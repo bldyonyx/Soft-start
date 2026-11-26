@@ -1,32 +1,66 @@
 import * as vscode from "vscode";
-import type { ProjectActionMessage, ProjectActionTarget } from "./webviewMessages";
+import type { ProjectActionMessage, ProjectActionTarget, ProjectRequest } from "./webviewMessages";
 
 export class ProjectActions {
   private busy = false;
 
   constructor(private readonly publish: (status: ProjectActionMessage) => void) {}
 
-  status(error?: string, target?: ProjectActionTarget): ProjectActionMessage {
-    return { type: "projectAction", busy: this.busy, error, target };
+  private pending?: { detail?: string; target?: ProjectActionTarget };
+
+  status(): ProjectActionMessage {
+    return { type: "projectAction", busy: this.busy, ...this.pending };
   }
 
-  async run(action: (focus: (target: ProjectActionTarget) => void) => Promise<void>, target?: ProjectActionTarget): Promise<void> {
+  async run(
+    action: (focus: (target: ProjectActionTarget, detail?: string) => void) => Promise<string | void>,
+    target?: ProjectActionTarget,
+    pendingDetail?: string,
+  ): Promise<void> {
     if (this.busy) {
-      this.publish(this.status("A project action is already running. Try again when it finishes."));
+      this.publish({ ...this.status(), error: "A project action is already running. Try again when it finishes." });
       return;
     }
     this.busy = true;
+    this.pending = { detail: pendingDetail, target };
     this.publish(this.status());
+    let detail: string | void = undefined;
     let error: string | undefined;
-    const focus = (next: ProjectActionTarget) => { target = next; };
+    const focus = (next: ProjectActionTarget, detail = pendingDetail) => {
+      if (next.section === target?.section && next.id === target.id && detail === this.pending?.detail) {
+        return;
+      }
+      target = next;
+      this.pending = { detail, target };
+      this.publish(this.status());
+    };
     try {
-      await action(focus);
+      detail = await action(focus);
     } catch (reason) {
       error = reason instanceof Error ? reason.message : String(reason);
     } finally {
       this.busy = false;
-      this.publish(this.status(error, target));
+      this.pending = undefined;
+      this.publish({ ...this.status(), error, target, detail: detail || undefined });
     }
+  }
+}
+
+export function pendingProjectAction(request: ProjectRequest): string {
+  switch (request.type) {
+    case "addPinnedProject": return "Adding pinned project…";
+    case "pinRecentProject": return "Pinning project…";
+    case "unpinProject": return "Unpinning project…";
+    case "renamePinnedProject": return "Renaming pinned project…";
+    case "restorePinnedProjectName": return "Restoring original project name…";
+    case "removeRecentProject": return "Removing recent project…";
+    case "reorderPinnedProjects": return "Moving pinned project…";
+    case "locatePinnedProject":
+    case "locateRecentProject": return "Locating project…";
+    case "openPinnedProject":
+    case "openRecentProject": return "Opening project…";
+    case "viewAllRecentProjects": return "Selecting a recent project…";
+    case "quickAction": return "Working on a project action…";
   }
 }
 

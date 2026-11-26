@@ -52,10 +52,11 @@ export async function selectProjectLocation(
 export async function addPinnedProject(
   store: { pin(project: Project): Promise<void> },
   window: ProjectPicker = vscode.window,
-): Promise<void> {
+): Promise<Project | undefined> {
   const project = await selectPinnedProject(window);
   if (project) {
     await store.pin(project);
+    return project;
   }
 }
 

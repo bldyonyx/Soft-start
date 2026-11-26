@@ -238,6 +238,95 @@ try {
   await send("Log.enable");
   await send("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/` });
   await waitFor("document.querySelector('.settings-gear')");
+  await waitFor("requests.some(({type}) => type === 'requestRecentProjects')");
+  assert.equal(await evaluate("document.querySelectorAll('.project-loading-row').length"), 2);
+  assert.equal(await evaluate("document.querySelector('.project-empty')"), null);
+  await evaluate("window.postMessage({type:'projectLoadError', error:'Project storage unavailable'}, '*')");
+  await waitFor("document.querySelector('[role=alert]')?.textContent === 'Project storage unavailable'");
+  await click(".project-load-error button");
+  assert.equal(await evaluate("requests.filter(({type}) => type === 'requestRecentProjects').length"), 2);
+  assert.equal(await evaluate("document.querySelectorAll('.project-loading-row').length"), 2);
+  await evaluate("window.postMessage({type:'recentProjects', projects:[]}, '*')");
+  await waitFor("document.querySelectorAll('.project-loading-row').length === 2");
+  await evaluate("window.postMessage({type:'pinnedProjects', projects:[]}, '*')");
+  await waitFor("document.querySelectorAll('.project-empty-hint').length === 2");
+
+  await evaluate(`(() => {
+    const add = document.querySelector('.recent-view-all');
+    add.click();
+    add.click();
+  })()`);
+  assert.equal(await evaluate("requests.filter(({type}) => type === 'addPinnedProject').length"), 1);
+  await evaluate("window.postMessage({type:'projectAction', busy:true, detail:'Adding pinned project…', target:{section:'pins'}}, '*')");
+  await waitFor("document.querySelector('[role=status]').textContent === 'Adding pinned project…'");
+  await evaluate("window.postMessage({type:'projectAction', busy:false, target:{section:'pins'}}, '*')");
+  await waitFor("document.querySelector('[role=status]').textContent === ''");
+
+  await evaluate(`window.pins = [
+    {id:'a'.repeat(64), name:'Renamed project', path:'/projects/first', kind:'folder', canRestoreName:true},
+    {id:'b'.repeat(64), name:'Second project', path:'/projects/second', kind:'folder'}
+  ]; window.postMessage({type:'pinnedProjects', projects:pins}, '*')`);
+  await waitFor("document.querySelectorAll('.pinned-row').length === 2");
+  await send("Emulation.setDeviceMetricsOverride", { width: 280, height: 420, deviceScaleFactor: 1, mobile: false });
+  await click(".pinned-row .recent-menu-trigger");
+  const openMenu = ".recent-menu-items:popover-open";
+  assert.equal(await evaluate(`(() => {
+    const menu = document.querySelector('${openMenu}');
+    const r = menu.getBoundingClientRect();
+    return menu.contains(document.activeElement) && r.left >= 0 && r.top >= 0 &&
+      r.right <= document.documentElement.clientWidth && r.bottom <= innerHeight;
+  })()`), true);
+  await send("Input.dispatchKeyEvent", {type:"keyDown", key:"ArrowDown", code:"ArrowDown"});
+  assert.equal(await evaluate("document.activeElement.textContent"), "Rename");
+  await send("Input.dispatchKeyEvent", {type:"keyDown", key:"Escape", code:"Escape"});
+  await waitFor("document.activeElement.classList.contains('recent-menu-trigger')");
+  assert.equal(await evaluate(`document.querySelector('${openMenu}')`), null);
+  await click(".pinned-row .recent-menu-trigger");
+  await send("Input.dispatchMouseEvent", {type:"mousePressed", x:4, y:4, button:"left", clickCount:1});
+  await send("Input.dispatchMouseEvent", {type:"mouseReleased", x:4, y:4, button:"left", clickCount:1});
+  await waitFor("document.activeElement.classList.contains('recent-menu-trigger')");
+  assert.equal(await evaluate(`document.querySelector('${openMenu}')`), null);
+  await send("Emulation.clearDeviceMetricsOverride");
+
+  await click(".pinned-row .recent-menu-trigger");
+  await evaluate(`[...document.querySelectorAll('${openMenu} button')]
+    .find(button => button.textContent === 'Restore original name').click()`);
+  assert.equal(await evaluate("requests.at(-1).type"), "restorePinnedProjectName");
+  await evaluate(`window.postMessage({type:'projectAction',busy:false,error:'Could not rename project',
+    target:{section:'pins',id:pins[0].id}}, '*')`);
+  await waitFor("document.querySelector('.pinned-row [role=alert]')?.textContent === 'Could not rename project'");
+  await click(".pinned-row .recent-menu-trigger");
+  await evaluate(`[...document.querySelectorAll('${openMenu} button')]
+    .find(button => button.textContent === 'Move down').click()`);
+  assert.deepEqual(await evaluate("requests.at(-1)"), {
+    type: "reorderPinnedProjects", ids: ["b".repeat(64), "a".repeat(64)], id: "a".repeat(64),
+  });
+  await evaluate(`window.postMessage({type:'projectAction',busy:true,detail:'Moving pinned project…',
+    target:{section:'pins',id:pins[0].id}}, '*')`);
+  await waitFor("document.querySelector('.pinned-row').getAttribute('aria-busy') === 'true'");
+  await evaluate(`window.postMessage({type:'pinnedProjects',projects:[pins[1],pins[0]]}, '*');
+    window.postMessage({type:'projectAction',busy:false,detail:'Renamed project moved to position 2 of 2.',
+      target:{section:'pins',id:pins[0].id}}, '*')`);
+  await waitFor("document.querySelector('[role=status]').textContent.includes('position 2 of 2')");
+  assert.equal(await evaluate("document.activeElement.getAttribute('aria-label')"), "Actions for Renamed project");
+  await evaluate(`window.dragData = new DataTransfer();
+    document.querySelector('.pinned-drag-handle').dispatchEvent(new DragEvent('dragstart', {
+      bubbles:true, dataTransfer:dragData
+    }));`);
+  await waitFor("document.querySelector('.pinned-row[data-dragging]')");
+  await evaluate(`document.querySelector('.pinned-row + .pinned-row').dispatchEvent(new DragEvent('dragover', {
+    bubbles:true, cancelable:true, dataTransfer:dragData
+  }))`);
+  await waitFor("document.querySelector('.pinned-row + .pinned-row').dataset.drop === 'after'");
+  await evaluate(`document.querySelector('.pinned-row + .pinned-row').dispatchEvent(new DragEvent('drop', {
+    bubbles:true, cancelable:true, dataTransfer:dragData
+  }))`);
+  assert.deepEqual(await evaluate("requests.at(-1)"), {
+    type: "reorderPinnedProjects", ids: ["a".repeat(64), "b".repeat(64)], id: "b".repeat(64),
+  });
+  await waitFor("!document.querySelector('.pinned-row[data-drop], .pinned-row[data-dragging]')");
+  await evaluate(`window.postMessage({type:'projectAction',busy:false}, '*')`);
+
   await evaluate("window.postMessage({type:'projectAction',busy:true}, '*')");
   await waitFor("document.querySelector('.project-actions').getAttribute('aria-disabled') === 'true'");
   await click(".utility-tile");

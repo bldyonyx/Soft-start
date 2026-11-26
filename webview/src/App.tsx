@@ -248,6 +248,24 @@ function RecentProjectRow({ project, now, pinned, error, pending, send }: { proj
 
 function PinnedProjectsPanel({ projects, action, send }: { projects: ProjectItem[]; action: ProjectActionMessage; send: SendProject }) {
   const [drag, setDrag] = useState<{ id: string; over?: string }>();
+  const list = useRef<HTMLUListElement>(null);
+  const change = action.change;
+
+  useLayoutEffect(() => {
+    if (!change || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const row = list.current?.querySelector<HTMLElement>(`[data-project-id="${change.id}"]`);
+    if (!row || row.closest("[hidden]")) return;
+
+    function clear() {
+      row?.removeAttribute("data-project-change");
+      row?.removeEventListener("animationend", clear);
+      row?.removeEventListener("animationcancel", clear);
+    }
+    row.setAttribute("data-project-change", change.kind);
+    row.addEventListener("animationend", clear);
+    row.addEventListener("animationcancel", clear);
+    return clear;
+  }, [change]);
   const source = drag ? projects.findIndex(({ id }) => id === drag.id) : -1;
 
   function move(from: number, to: number) {
@@ -273,7 +291,7 @@ function PinnedProjectsPanel({ projects, action, send }: { projects: ProjectItem
   return (
     <div className="project-panel recent-panel">
       {projects.length ? (
-        <ul className="recent-list">
+        <ul className="recent-list" ref={list}>
           {projects.map((project, index) => {
             const open = () => send({ type: "openPinnedProject", id: project.id });
             const guidanceId = project.unresolved ? `pin-${project.id}-guidance` : undefined;
@@ -284,6 +302,7 @@ function PinnedProjectsPanel({ projects, action, send }: { projects: ProjectItem
                 key={project.id}
                 className="recent-row recent-project-row pinned-row"
                 aria-busy={(action.busy && action.target?.section === "pins" && action.target.id === project.id) || undefined}
+                data-project-id={project.id}
                 data-dragging={dragging || undefined}
                 data-drop={over ? (source < index ? "after" : "before") : undefined}
                 onDragOver={(event) => allowDrop(event, project.id)}
@@ -367,6 +386,7 @@ function useProjectLists() {
   const [now, setNow] = useState(Date.now);
   const [action, setAction] = useState<ProjectActionMessage>({ type: "projectAction", busy: false });
   const locked = useRef(false);
+  const pinsAtRequest = useRef<Set<string>>(undefined);
   const focusOrigin = useRef<{ control: HTMLElement; section: HTMLElement }>(undefined);
 
   const load = useCallback(() => {
@@ -378,6 +398,9 @@ function useProjectLists() {
   const send: SendProject = (request) => {
     if (!vscode || locked.current) return;
     locked.current = true;
+    if (request.type === "pinRecentProject" || request.type === "addPinnedProject") {
+      pinsAtRequest.current = new Set(pinned?.map(({ id }) => id));
+    }
     const control = document.activeElement;
     const section = control?.closest(".dashboard-section")?.querySelector<HTMLElement>(".section-title");
     if (control instanceof HTMLElement && section) {
@@ -387,6 +410,7 @@ function useProjectLists() {
       vscode.postMessage(request);
     } catch {
       locked.current = false;
+      pinsAtRequest.current = undefined;
       focusOrigin.current = undefined;
       setAction({ type: "projectAction", busy: false, error: "Could not send the project action. Try again." });
     }
@@ -418,8 +442,11 @@ function useProjectLists() {
         setLoadError(event.data.error);
         return;
       } else if (isProjectActionMessage(event.data)) {
-        locked.current = event.data.busy;
-        setAction(event.data);
+        const { change, busy } = event.data;
+        const alreadyPinned = change?.kind === "pinned" && pinsAtRequest.current?.has(change.id);
+        locked.current = busy;
+        if (!busy) pinsAtRequest.current = undefined;
+        setAction(alreadyPinned ? { ...event.data, change: undefined } : event.data);
         return;
       } else {
         return;
@@ -518,7 +545,7 @@ function App() {
   const settings = useDashboardSettings(postSettings);
   const [showSettings, setShowSettings] = useState(false);
   const settingsButton = useRef<HTMLButtonElement>(null);
-  const focusOnReturn = useRef(false);
+  const scrollPositions = useRef<{ dashboard?: number; settings?: number }>({});
   const active = showSettings ? settings.preview : settings.saved;
   const { backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity } = active;
   const symbols = settings.saved.decorativeSymbols;
@@ -528,11 +555,22 @@ function App() {
   useLayoutEffect(() => applyDashboardTheme({ backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity }),
     [backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity]);
 
-  useEffect(() => {
-    if (showSettings) {
-      document.getElementById("settings-title")?.focus();
-    } else if (focusOnReturn.current) {
-      settingsButton.current?.focus();
+  useLayoutEffect(() => {
+    const position = scrollPositions.current[showSettings ? "settings" : "dashboard"];
+    if (!showSettings && position === undefined) return;
+    window.scrollTo({ top: position ?? 0, behavior: "instant" });
+    const visible = (element: HTMLElement | null) => {
+      const bounds = element?.getBoundingClientRect();
+      return Boolean(bounds && bounds.top >= 0 && bounds.bottom <= window.innerHeight);
+    };
+    const title = showSettings ? document.getElementById("settings-title") : settingsButton.current;
+    const saveState = showSettings ? document.getElementById("settings-save-state") : null;
+    if (visible(title)) {
+      title?.focus({ preventScroll: true });
+    } else if (visible(saveState)) {
+      saveState?.focus({ preventScroll: true });
+    } else {
+      title?.focus();
     }
   }, [showSettings]);
 
@@ -548,7 +586,7 @@ function App() {
           {symbols && <Accent>{settings.saved.headerKaomoji}</Accent>}
           <button type="button" className="settings-gear" ref={settingsButton} aria-label="Open settings" title="Settings"
             onClick={() => {
-              focusOnReturn.current = true;
+              scrollPositions.current.dashboard = window.scrollY;
               setShowSettings(true);
             }}>
             <Icon name="settings" />
@@ -608,7 +646,10 @@ function App() {
         </p>}
       </main>
       {showSettings && (
-        <SettingsView settings={settings} back={() => setShowSettings(false)} preview={
+        <SettingsView settings={settings} back={() => {
+          scrollPositions.current.settings = window.scrollY;
+          setShowSettings(false);
+        }} preview={
           <>
             {active.decorativeSymbols && <div className="settings-preview-kaomoji"><Accent>{active.headerKaomoji}</Accent></div>}
             <WelcomeWindow settings={active} preview />

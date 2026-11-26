@@ -834,6 +834,117 @@ try {
   await key("Enter", 13);
   await waitFor("document.activeElement.className === 'settings-gear'");
   console.log("Keyboard, accessibility tree, contrast, and reduced-motion checks passed.");
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+  await send("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/?motion` });
+  await waitFor("location.search === '?motion' && document.querySelector('.settings-gear:enabled')");
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('#root')).animationDuration"), "0.24s");
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('.settings-gear')).transitionDuration"), "0.12s");
+  await tabTo(".settings-gear");
+  assert.equal(await evaluate("getComputedStyle(document.activeElement).outlineStyle"), "solid");
+  await evaluate(`window.motionPins = ['a','b','c','d'].map((letter) => ({
+    id:letter.repeat(64), name:'Project '+letter, path:'/projects/'+letter, kind:'folder'
+  }));
+  const root = document.querySelector('#root');
+  window.entrance = root.getAnimations()[0];
+  window.motionEvents = [];
+  const observe = new MutationObserver((records) => {
+    for (const {target} of records) {
+      const change = target.dataset.projectChange;
+      if (change) {
+        motionEvents.push({
+          id:target.dataset.projectId, change,
+          duration:getComputedStyle(target).animationDuration,
+        });
+      }
+    }
+  });
+  observe.observe(root, {attributes:true, attributeFilter:['data-project-change'], subtree:true});
+  window.postMessage({type:'recentProjects', projects:[{...motionPins[2], lastOpened:Date.now()}]}, '*');
+  window.postMessage({type:'pinnedProjects', projects:[motionPins[0]]}, '*');`);
+  await waitFor("document.querySelectorAll('.pinned-row').length === 1");
+  assert.equal(await evaluate("document.querySelector('#root').getAnimations().every(animation => animation === entrance)"), true);
+  await evaluate("Promise.all(document.querySelector('#root').getAnimations().map(animation => animation.finished))");
+
+  const add = '[aria-labelledby="pinned-projects"] .recent-view-all';
+  await tabTo(add);
+  await key("Enter", 13);
+  await waitFor("requests.filter(({type}) => type === 'addPinnedProject').length === 1");
+  await evaluate(`window.postMessage({type:'projectAction', busy:true, detail:'Adding pinned project…', target:{section:'pins'}}, '*');
+    window.postMessage({type:'pinnedProjects', projects:motionPins.slice(0,2)}, '*');`);
+  await waitFor("document.querySelectorAll('.pinned-row').length === 2 && document.querySelector('.project-actions').getAttribute('aria-disabled') === 'true'");
+  assert.deepEqual(await evaluate("motionEvents"), []);
+  await evaluate(`window.postMessage({type:'projectAction', busy:false, detail:'Project is in Pinned Projects.',
+    target:{section:'pins'}, change:{kind:'pinned',id:motionPins[1].id}}, '*')`);
+  await waitFor("motionEvents.length === 1");
+  assert.deepEqual(await evaluate("motionEvents[0]"), { id:"b".repeat(64), change:"pinned", duration:"0.24s" });
+  await waitFor("!document.querySelector('[data-project-change]')");
+
+  await key("Enter", 13);
+  await waitFor("requests.filter(({type}) => type === 'addPinnedProject').length === 2");
+  await evaluate(`window.postMessage({type:'projectAction', busy:false, detail:'This project is already pinned.',
+    change:{kind:'pinned',id:motionPins[1].id}}, '*')`);
+  await waitFor("document.querySelector('.project-status').textContent === 'This project is already pinned.'");
+  assert.equal(await evaluate("motionEvents.length"), 1, "adding an existing pin does not replay the highlight");
+
+  await key("Enter", 13);
+  await waitFor("requests.filter(({type}) => type === 'addPinnedProject').length === 3");
+  await evaluate("window.postMessage({type:'projectAction', busy:false, error:'Could not pin project', target:{section:'pins'}}, '*')");
+  await waitFor("document.querySelector('[role=alert]')?.textContent === 'Could not pin project'");
+  assert.equal(await evaluate("motionEvents.length"), 1);
+
+  await tabTo(pinnedTrigger);
+  await key("Enter", 13);
+  await waitFor("document.activeElement.textContent === 'Open project'");
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('.recent-menu-items:popover-open')).animationDuration"), "0.12s");
+  await key("Escape", 27);
+  assert.equal(await evaluate("document.querySelector('.recent-menu-items:popover-open')"), null);
+  await choose(pinnedTrigger, "Move down");
+  await evaluate(`window.postMessage({type:'pinnedProjects', projects:[motionPins[1],motionPins[0]]}, '*');
+    window.postMessage({type:'projectAction', busy:false, detail:'Project a moved to position 2 of 2.',
+      target:{section:'pins',id:motionPins[0].id}, change:{kind:'reordered',id:motionPins[0].id}}, '*');`);
+  await waitFor("motionEvents.length === 2");
+  assert.deepEqual(await evaluate("motionEvents[1]"), { id:"a".repeat(64), change:"reordered", duration:"0.175s" });
+  assert.equal(await evaluate("document.activeElement.getAttribute('aria-label')"), "Actions for Project a");
+  assert.match(await evaluate("document.querySelector('.project-status').textContent"), /position 2 of 2/);
+  await waitFor("!document.querySelector('[data-project-change]')");
+
+  await choose(recentTrigger, "Pin project");
+  await evaluate(`window.postMessage({type:'pinnedProjects', projects:[motionPins[1],motionPins[0],motionPins[2]]}, '*');
+    window.postMessage({type:'projectAction', busy:false, detail:'Project is pinned.',
+      change:{kind:'pinned',id:motionPins[2].id}}, '*');`);
+  await waitFor("motionEvents.length === 3");
+  assert.deepEqual(await evaluate("motionEvents[2]"), { id:"c".repeat(64), change:"pinned", duration:"0.24s" });
+
+  await tabTo(".settings-gear");
+  await key("Enter", 13);
+  await waitFor("document.activeElement.id === 'settings-title'");
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('.settings-preview')).animationDuration"), "0.175s");
+  await evaluate("window.scrollTo(0, 540); document.querySelector('[data-view-focus]').click()");
+  await waitFor("document.activeElement.className === 'settings-gear'");
+  await key("Enter", 13);
+  await waitFor("document.activeElement.id === 'settings-save-state'");
+  assert.equal(await evaluate("window.scrollY"), 540);
+  await tabTo("[data-view-focus]", true);
+  await key("Enter", 13);
+  await waitFor("document.activeElement.className === 'settings-gear'");
+  assert.equal(await evaluate("document.querySelector('#root').getAnimations().length"), 0);
+
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await tabTo(add);
+  await key("Enter", 13);
+  await evaluate(`window.postMessage({type:'pinnedProjects', projects:motionPins}, '*');
+    window.postMessage({type:'projectAction', busy:false, detail:'Project is in Pinned Projects.',
+      change:{kind:'pinned',id:motionPins[3].id}}, '*');`);
+  await waitFor("document.querySelectorAll('.pinned-row').length === 4");
+  await tabTo(pinnedTrigger);
+  await key("Enter", 13);
+  await waitFor("document.activeElement.textContent === 'Open project'");
+  assert.equal(await evaluate("document.getAnimations().length"), 0);
+  await key("Escape", 27);
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('.settings-gear')).transitionDuration"), "0s");
+  assert.equal(await evaluate("document.documentElement.scrollWidth === document.documentElement.clientWidth"), true);
+  assert.equal(await evaluate("motionEvents.length"), 3);
+  console.log("Motion timings, confirmed actions, focus, scroll restoration, and reduced motion passed.");
   assert.deepEqual(errors, []);
   console.log("Settings browser interactions passed.");
 } finally {

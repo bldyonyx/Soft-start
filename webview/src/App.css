@@ -1012,3 +1012,79 @@ html:has(.settings-view) {
     background: var(--lavender);
   }
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    --motion-fast: 120ms;
+    --motion-standard: 175ms;
+    --motion-entrance: 240ms;
+    --motion-ease-out: cubic-bezier(0.2, 0.65, 0.35, 1);
+  }
+
+  #root {
+    animation: dashboard-enter var(--motion-entrance) var(--motion-ease-out);
+  }
+
+  .dashboard[aria-labelledby="dashboard-title"] > .welcome-window,
+  .settings-preview {
+    animation: view-enter var(--motion-standard) var(--motion-ease-out);
+  }
+
+  .recent-menu-items:popover-open {
+    animation: menu-enter var(--motion-fast) var(--motion-ease-out);
+  }
+
+  :is(.recent-open, .recent-menu-trigger, .recent-menu-items button, .recent-view-all, .pinned-drag-handle,
+      .utility-tile, .settings-gear, .settings-view button, .settings-view input, .settings-view select, .settings-check) {
+    transition-property: background-color, border-color, color, opacity;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--motion-ease-out);
+  }
+
+  .settings-check:has(input:enabled):hover {
+    color: var(--lavender);
+  }
+
+  .settings-range input:enabled:hover::-webkit-slider-thumb {
+    border-color: var(--lavender);
+  }
+
+  .settings-range input::-webkit-slider-thumb {
+    transition: background-color var(--motion-fast) var(--motion-ease-out),
+      border-color var(--motion-fast) var(--motion-ease-out);
+  }
+
+  .recent-project-row,
+  .settings-save-state {
+    transition: border-color var(--motion-standard) var(--motion-ease-out),
+      color var(--motion-standard) var(--motion-ease-out);
+  }
+
+  .pinned-row[data-project-change="pinned"] {
+    animation: pin-confirmed var(--motion-entrance) var(--motion-ease-out);
+  }
+
+  .pinned-row[data-project-change="reordered"] {
+    animation: pin-settle var(--motion-standard) var(--motion-ease-out);
+  }
+
+  @keyframes dashboard-enter {
+    from { opacity: 0.96; }
+  }
+
+  @keyframes view-enter {
+    from { opacity: 0.96; }
+  }
+
+  @keyframes menu-enter {
+    from { opacity: 0.9; }
+  }
+
+  @keyframes pin-confirmed {
+    from { border-color: var(--lavender); }
+  }
+
+  @keyframes pin-settle {
+    from { transform: translateY(2px); }
+  }
+}

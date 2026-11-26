@@ -10,6 +10,7 @@ import { ProjectStore } from "../projectStore";
 import { assertProjectOrigin, identifyProject, projectId, serializeUri } from "../projects";
 import { addPinnedProject, pinnedProjectsKey, selectProjectLocation } from "../pinnedProjects";
 import { recentProjectsKey } from "../recentProjects";
+import { isProjectActionMessage, type ProjectChange } from "../webviewMessages";
 
 const folder = (name: string, uri = vscode.Uri.file(join(tmpdir(), name))) => ({ uri, name, kind: "folder" as const });
 const host = projectHostIdentity(undefined, "local-machine");
@@ -255,18 +256,26 @@ suite("Project action feedback", () => {
     const messages: ReturnType<ProjectActions["status"]>[] = [];
     const actions = new ProjectActions((message) => messages.push(message));
     const target = { section: "pins", id: "a".repeat(64) } as const;
-    let finish!: (detail?: string) => void;
-    const running = actions.run(() => new Promise<string | undefined>((resolve) => { finish = resolve; }),
+    type Result = { detail: string; change: ProjectChange };
+    let finish!: (result: Result) => void;
+    const running = actions.run(() => new Promise<Result>((resolve) => { finish = resolve; }),
       target, "Moving pinned project…");
     assert.deepEqual(messages.map(({ busy, detail, target }) => ({ busy, detail, target })),
       [{ busy: true, detail: "Moving pinned project…", target }]);
-    finish("Example moved to position 2 of 3.");
+    assert.equal(messages[0].change, undefined);
+    const change = { kind: "reordered", id: target.id } as const;
+    finish({ detail: "Example moved to position 2 of 3.", change });
     await running;
     assert.equal(messages.at(-1)?.detail, "Example moved to position 2 of 3.");
     assert.equal(messages.at(-1)?.busy, false);
+    assert.deepEqual(messages.at(-1)?.change, change);
+    assert.ok(isProjectActionMessage(messages.at(-1)));
+    assert.equal(isProjectActionMessage({ ...messages.at(-1), busy: true }), false);
+    assert.equal(isProjectActionMessage({ ...messages.at(-1), error: "Could not reorder" }), false);
 
     await actions.run(async () => undefined, target, "Adding pinned project…");
     assert.equal(messages.at(-1)?.detail, undefined);
+    assert.equal(messages.at(-1)?.change, undefined);
     assert.equal(messages.at(-1)?.error, undefined);
   });
 

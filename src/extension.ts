@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { createProject } from "./newProject";
 import { workspaceProjectStore } from "./projectStore";
 import { cloneProject, pendingProjectAction, ProjectActions } from "./projectActions";
-import { assertProjectOrigin, currentProject, openProject, presentProject, projectId } from "./projects";
+import { assertProjectOrigin, currentProject, identifyProject, openProject, presentProject, projectId } from "./projects";
 import { addPinnedProject, promptPinnedProjectName, selectProjectLocation } from "./pinnedProjects";
 import { DashboardPanel } from "./dashboardPanel";
 import { Startup, startupScope } from "./startup";
@@ -228,8 +228,14 @@ export function activate(context: vscode.ExtensionContext) {
             case "removeRecentProject":
               await store.forget(message.id);
               return "Project removed from Recent Projects.";
-            case "addPinnedProject":
-              return await addPinnedProject(store) ? "Project is in Pinned Projects." : undefined;
+            case "addPinnedProject": {
+              const added = await addPinnedProject(store);
+              if (added) {
+                return { detail: "Project is in Pinned Projects.",
+                  change: { kind: "pinned", id: identifyProject(added, store.host).id } };
+              }
+              return;
+            }
             case "locatePinnedProject":
             case "locateRecentProject": {
               const list = message.type === "locatePinnedProject" ? "pins" : "recent";
@@ -250,7 +256,7 @@ export function activate(context: vscode.ExtensionContext) {
                 throw new Error("This project is no longer in Soft Start’s recent history.");
               }
               await store.pin(project);
-              return "Project is pinned.";
+              return { detail: "Project is pinned.", change: { kind: "pinned", id: project.id } };
             }
             case "unpinProject":
               await store.unpin(message.id);
@@ -266,7 +272,8 @@ export function activate(context: vscode.ExtensionContext) {
                 throw new Error("This pin was removed in another window.");
               }
               const project = pins[position];
-              return `${project.displayName ?? project.name} moved to position ${position + 1} of ${pins.length}.`;
+              return { detail: `${project.displayName ?? project.name} moved to position ${position + 1} of ${pins.length}.`,
+                change: { kind: "reordered", id: project.id } };
             }
             case "restorePinnedProjectName":
             case "renamePinnedProject": {

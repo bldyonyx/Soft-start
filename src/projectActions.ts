@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
-import type { ProjectActionMessage, ProjectActionTarget, ProjectRequest } from "./webviewMessages";
+import type { ProjectActionMessage, ProjectActionTarget, ProjectChange, ProjectRequest } from "./webviewMessages";
+
+type ActionResult = string | { detail: string; change: ProjectChange } | void;
 
 export class ProjectActions {
   private busy = false;
@@ -13,7 +15,7 @@ export class ProjectActions {
   }
 
   async run(
-    action: (focus: (target: ProjectActionTarget, detail?: string) => void) => Promise<string | void>,
+    action: (focus: (target: ProjectActionTarget, detail?: string) => void) => Promise<ActionResult>,
     target?: ProjectActionTarget,
     pendingDetail?: string,
   ): Promise<void> {
@@ -24,7 +26,7 @@ export class ProjectActions {
     this.busy = true;
     this.pending = { detail: pendingDetail, target };
     this.publish(this.status());
-    let detail: string | void = undefined;
+    let result: ActionResult = undefined;
     let error: string | undefined;
     const focus = (next: ProjectActionTarget, detail = pendingDetail) => {
       if (next.section === target?.section && next.id === target.id && detail === this.pending?.detail) {
@@ -35,13 +37,16 @@ export class ProjectActions {
       this.publish(this.status());
     };
     try {
-      detail = await action(focus);
+      result = await action(focus);
     } catch (reason) {
       error = reason instanceof Error ? reason.message : String(reason);
     } finally {
       this.busy = false;
       this.pending = undefined;
-      this.publish({ ...this.status(), error, target, detail: detail || undefined });
+      this.publish({
+        ...this.status(), error, target,
+        ...(typeof result === "object" ? result : { detail: result || undefined }),
+      });
     }
   }
 }

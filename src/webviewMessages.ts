@@ -79,7 +79,16 @@ export type PinnedProjectsMessage = { type: "pinnedProjects"; projects: ProjectI
 
 export type ProjectActionTarget = { section: "pins" | "recent" | "quick"; id?: string };
 
-export type ProjectActionMessage = { type: "projectAction"; busy: boolean; error?: string; detail?: string; target?: ProjectActionTarget };
+export type ProjectChange = { kind: "pinned" | "reordered"; id: string };
+
+export type ProjectActionMessage = {
+  type: "projectAction";
+  busy: boolean;
+  error?: string;
+  detail?: string;
+  target?: ProjectActionTarget;
+  change?: ProjectChange;
+};
 
 function isProjectActionTarget(value: unknown): value is ProjectActionTarget {
   return typeof value === "object" && value !== null && "section" in value &&
@@ -92,7 +101,13 @@ export function isProjectActionMessage(value: unknown): value is ProjectActionMe
     "type" in value && value.type === "projectAction" && "busy" in value && typeof value.busy === "boolean" &&
     (!("error" in value) || value.error === undefined || typeof value.error === "string") &&
     (!("detail" in value) || value.detail === undefined || typeof value.detail === "string") &&
-    (!("target" in value) || value.target === undefined || isProjectActionTarget(value.target));
+    (!("target" in value) || value.target === undefined || isProjectActionTarget(value.target)) &&
+    (!("change" in value) || value.change === undefined || (!value.busy && (!("error" in value) || !value.error) && isProjectChange(value.change)));
+}
+
+function isProjectChange(value: unknown): value is ProjectChange {
+  return typeof value === "object" && value !== null && "kind" in value &&
+    (value.kind === "pinned" || value.kind === "reordered") && "id" in value && isProjectId(value.id);
 }
 
 function isProjectId(value: unknown): value is string {

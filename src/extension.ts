@@ -273,7 +273,7 @@ export function activate(context: vscode.ExtensionContext) {
             const items = (await store.read()).recent.map(presentProject).map((item) => ({
               id: item.id,
               label: item.name,
-              description: item.path,
+              description: item.hostLabel ? `${item.hostLabel} · ${item.path}` : item.path,
               detail: item.unresolved ? "Use Locate project on the dashboard to confirm this location." : undefined,
             }));
             id = (await vscode.window.showQuickPick(items, {

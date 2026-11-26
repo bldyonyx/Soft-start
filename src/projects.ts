@@ -128,7 +128,7 @@ export function presentProject(entry: StoredProject | IdentifiedProject): Projec
     uri.authority ? `${uri.authority}${uri.path}` : `${uri.scheme}:${uri.path}`;
   const origin = "origin" in entry ? entry.origin : undefined;
   const originLabel = origin?.kind === "host" ? origin.label : undefined;
-  return { id, name, kind, path: originLabel ? `${originLabel} · ${path}` : path,
+  return { id, name, kind, path, ...(originLabel ? { hostLabel: originLabel } : {}),
     ...(origin?.kind === "unknown" ? { unresolved: true } : {}) };
 }
 

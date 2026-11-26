@@ -131,12 +131,17 @@ function ProjectMenu({ name, actions }: { name: string; actions: ProjectAction[]
   );
 }
 
-function ProjectOpenButton({ project, open }: { project: ProjectItem; open: () => void }) {
+function ProjectOpenButton({ project, open, pinned }: { project: ProjectItem; open: () => void; pinned?: boolean }) {
+  const location = project.hostLabel ? `${project.hostLabel} · ${project.path}` : project.path;
   return (
-    <button type="button" className="recent-open" disabled={project.unresolved} onClick={open} title={project.path}>
+    <button type="button" className="recent-open" disabled={project.unresolved} onClick={open} title={`${project.name}\n${location}`}>
       <Icon name={project.kind} />
       <span className="recent-project-info">
-        <span className="recent-name">{project.name}</span>
+        <span className="recent-heading">
+          <span className="recent-name">{project.name}</span>
+          {pinned && <span className="recent-pin" title="Pinned project" role="img" aria-label="Pinned project"><Icon name="pin" /></span>}
+        </span>
+        {project.hostLabel && <span className="recent-host">{project.hostLabel}</span>}
         <span className="recent-path">{project.path}</span>
       </span>
     </button>
@@ -154,8 +159,7 @@ function RecentProjectRow({ project, now, pinned, error }: { project: RecentProj
   const open = () => vscode?.postMessage({ type: "openRecentProject", id: project.id });
   return (
     <li className="recent-row recent-project-row">
-      <ProjectOpenButton project={project} open={open} />
-      {pinned && <span className="recent-pin" title="Pinned project" role="img" aria-label="Pinned project"><Icon name="pin" /></span>}
+      <ProjectOpenButton project={project} open={open} pinned={pinned} />
       <time
         className="recent-time"
         dateTime={new Date(project.lastOpened).toISOString()}
@@ -259,7 +263,7 @@ function PinnedProjectsPanel({ projects, busy, action }: { projects: ProjectItem
           })}
         </ul>
       ) : (
-        <div className="pinned-empty">
+        <div className="project-empty">
           <span className="shortcut-icon"><Icon name="pin" /></span>
           <span>No pinned projects</span>
         </div>
@@ -318,16 +322,18 @@ function RecentProjectsPanel({ projects, pinned, now, limit, action }: {
   const errorId = action.target?.section === "recent" ? action.target.id : undefined;
   return (
     <div className="project-panel recent-panel">
-      <ul className="recent-list">
-        {projects.length ? visible.map((project) => (
-          <RecentProjectRow key={project.id} project={project} now={now} pinned={pinned.has(project.id)} error={errorId === project.id ? action.error : undefined} />
-        )) : (
-          <li className="recent-row">
-            <Icon name="clock" />
-            <span>No recent projects</span>
-          </li>
-        )}
-      </ul>
+      {projects.length ? (
+        <ul className="recent-list">
+          {visible.map((project) => (
+            <RecentProjectRow key={project.id} project={project} now={now} pinned={pinned.has(project.id)} error={errorId === project.id ? action.error : undefined} />
+          ))}
+        </ul>
+      ) : (
+        <div className="project-empty">
+          <span className="shortcut-icon"><Icon name="clock" /></span>
+          <span>No recent projects</span>
+        </div>
+      )}
       {projects.length > limit && (
         <button
           className="recent-view-all"
@@ -375,6 +381,8 @@ function App() {
   const active = showSettings ? settings.preview : settings.saved;
   const { backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity } = active;
   const symbols = settings.saved.decorativeSymbols;
+  const recentCount = Math.min(recent.length, settings.saved.recentProjectsLimit);
+  const balancePanels = Math.abs(pinned.length - recentCount) <= 1;
 
   useLayoutEffect(() => applyDashboardTheme({ backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity }),
     [backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity]);
@@ -416,7 +424,7 @@ function App() {
               event.stopPropagation();
             }
           }}>
-          <div className="project-columns">
+          <div className="project-columns" data-balanced={balancePanels || undefined}>
             <DashboardSection id="pinned-projects" title="Pinned projects" accent={symbols ? "ഒ" : undefined}>
               <PinnedProjectsPanel projects={pinned} busy={projectAction.busy} action={projectAction} />
             </DashboardSection>

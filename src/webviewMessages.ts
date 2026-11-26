@@ -7,6 +7,7 @@ export type ProjectItem = {
   id: string;
   name: string;
   path: string;
+  hostLabel?: string;
   kind: ProjectKind;
   unresolved?: boolean;
 };
@@ -140,6 +141,7 @@ function isProjectItem(value: unknown): value is ProjectItem {
     "id" in value && isProjectId(value.id) &&
     "name" in value && typeof value.name === "string" &&
     "path" in value && typeof value.path === "string" &&
+    (!("hostLabel" in value) || typeof value.hostLabel === "string") &&
     "kind" in value && (value.kind === "folder" || value.kind === "workspace") &&
     (!("unresolved" in value) || typeof value.unresolved === "boolean");
 }

@@ -1,3 +1,5 @@
+@import "./fonts/decorative.css";
+
 :root {
   color-scheme: dark;
   --background: #080709;
@@ -19,7 +21,7 @@
   --symbol-font: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2",
     "Noto Sans Symbols", "Noto Sans Egyptian Hieroglyphs", "Noto Music",
     "Noto Sans Chakma", "Noto Sans New Tai Lue", "Segoe UI Emoji",
-    "Apple Color Emoji", "Noto Color Emoji", system-ui, sans-serif;
+    "Apple Color Emoji", "Noto Color Emoji", "Soft Start Decor", system-ui, sans-serif;
   font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
   color: var(--text);
   background: var(--background);

@@ -1,0 +1,34 @@
+Soft Start decorative font subsets
+
+Source fonts from Google Fonts at commit 6ebe737e44fd64ee736bbc6feed6136a6dbfd222.
+Converted to WOFF2 and subset to the listed Unicode characters.
+Variable sources use their default axis values. Each subset uses a new family name.
+The accompanying OFL files provide the upstream copyright notices and license terms.
+
+decor-egyptian.woff2 (U+133F2)
+https://github.com/google/fonts/tree/6ebe737e44fd64ee736bbc6feed6136a6dbfd222/ofl/notosansegyptianhieroglyphs
+Notice: notosansegyptianhieroglyphs-OFL.txt
+
+decor-gujarati.woff2 (U+0AEE)
+https://github.com/google/fonts/tree/6ebe737e44fd64ee736bbc6feed6136a6dbfd222/ofl/notosansgujarati
+Notice: notosansgujarati-OFL.txt
+
+decor-malayalam.woff2 (U+0D12)
+https://github.com/google/fonts/tree/6ebe737e44fd64ee736bbc6feed6136a6dbfd222/ofl/notosansmalayalam
+Notice: notosansmalayalam-OFL.txt
+
+decor-music.woff2 (U+1D122)
+https://github.com/google/fonts/tree/6ebe737e44fd64ee736bbc6feed6136a6dbfd222/ofl/notomusic
+Notice: notomusic-OFL.txt
+
+decor-punctuation.woff2 (U+2E1D)
+https://github.com/google/fonts/tree/6ebe737e44fd64ee736bbc6feed6136a6dbfd222/ofl/notosans
+Notice: notosans-OFL.txt
+
+decor-tibetan.woff2 (U+0F72, U+0F80)
+https://github.com/google/fonts/tree/6ebe737e44fd64ee736bbc6feed6136a6dbfd222/ofl/notoseriftibetan
+Notice: notoseriftibetan-OFL.txt
+
+decor-yi.woff2 (U+30FB, U+A4B1)
+https://github.com/google/fonts/tree/6ebe737e44fd64ee736bbc6feed6136a6dbfd222/ofl/notosansyi
+Notice: notosansyi-OFL.txt

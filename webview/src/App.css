@@ -54,6 +54,12 @@
   overflow-wrap: anywhere;
 }
 
+/* Reserve the built-in ornament's header space while the sparse fonts load. */
+.dashboard-header > .default-header-kaomoji {
+  min-inline-size: 6em;
+  text-align: end;
+}
+
 .welcome-window {
   overflow: hidden;
   border: 1px solid var(--border);

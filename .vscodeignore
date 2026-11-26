@@ -8,3 +8,5 @@
 !media/assets/*.js
 !media/assets/*.css
 !media/assets/*.svg
+!media/assets/*.woff2
+!media/font-licenses/*.txt

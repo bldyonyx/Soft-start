@@ -88,11 +88,11 @@ const hostScript = `
   
 `;
 
-const contentTypes = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
+const contentTypes = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
 const server = createServer(async (request, response) => {
   const url = new URL(request.url, "http://127.0.0.1");
   const path = url.pathname === "/" ? "/index.html" : url.pathname;
-  if (path !== "/index.html" && !/^\/assets\/[\w-]+\.(?:js|css|svg)$/.test(path)) {
+  if (path !== "/index.html" && !/^\/assets\/[\w-]+\.(?:js|css|svg|woff2)$/.test(path)) {
     response.writeHead(404).end();
     return;
   }
@@ -105,7 +105,7 @@ const server = createServer(async (request, response) => {
     }
     response.writeHead(200, {
       "Content-Type": contentTypes[extname(path)],
-      "Content-Security-Policy": "default-src 'none'; script-src 'nonce-test-host'; style-src 'self'; img-src 'self' data:; connect-src 'none'",
+      "Content-Security-Policy": "default-src 'none'; script-src 'nonce-test-host'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'",
     });
     response.end(body);
   } catch {
@@ -945,6 +945,30 @@ try {
   assert.equal(await evaluate("document.documentElement.scrollWidth === document.documentElement.clientWidth"), true);
   assert.equal(await evaluate("motionEvents.length"), 3);
   console.log("Motion timings, confirmed actions, focus, scroll restoration, and reduced motion passed.");
+  await send("Page.navigate", {url: `http://127.0.0.1:${server.address().port}/?decorations`});
+  await waitFor("location.search === '?decorations' && document.querySelector('.settings-gear')");
+  for (const glyph of ["૮", "ഒ", "ི", "ྀ", "⸝", "・", "꒱", "𓏲", "𝄢"]) {
+    assert.equal(await evaluate(`document.fonts.load('14px "Soft Start Decor"', ${JSON.stringify(glyph)})
+      .then(faces => faces.length === 1 && faces[0].status === 'loaded')`), true, glyph);
+  }
+  assert.equal(await evaluate(`document.fonts.load('14px "Soft Start Decor"', 'Z').then(faces => faces.length)`), 0);
+  await evaluate("reply = true; externalEdit({})");
+  assert.match(await evaluate("getComputedStyle(document.querySelector('.brand-mark .accent')).fontFamily"),
+    /"Soft Start Decor", system-ui/);
+  assert.equal(await evaluate("document.querySelector('.brand-mark .accent').textContent"), "𓏲ּ𝄢");
+  assert.equal(await evaluate("document.querySelector('.dashboard-header > .accent').textContent"), "૮ ᴗ͈ ˕ ✙╿ྀི꒱");
+  await click(".settings-gear");
+  await waitFor("document.querySelector('.settings-preview-kaomoji .accent')?.textContent === '૮ ᴗ͈ ˕ ✙╿ྀི꒱'");
+  await input('label:nth-of-type(2) input[maxlength="80"]', "Z (•‿•) λ");
+  await waitFor("document.querySelector('.settings-preview-kaomoji .accent')?.textContent === 'Z (•‿•) λ'");
+  await click("fieldset:nth-of-type(2) input[type=checkbox]");
+  await waitFor("!document.querySelector('.settings-preview .accent')");
+  await click(".settings-save");
+  await waitFor("document.querySelector('.settings-status [role=status]').textContent === 'Settings saved.'");
+  await click("[data-view-focus]");
+  assert.equal(await evaluate("document.querySelector('main:not([hidden]) .accent')"), null);
+  console.log("Decorative font assets, custom kaomojis, and decoration visibility passed.");
+
   assert.deepEqual(errors, []);
   console.log("Settings browser interactions passed.");
 } finally {

@@ -1,0 +1,49 @@
+/* Chromium can stop on a missing-glyph box at the generic family. Keep sparse subsets before it. */
+@font-face {
+  font-family: "Soft Start Decor";
+  src: url("./decor-egyptian.woff2?no-inline") format("woff2");
+  font-display: swap;
+  unicode-range: U+133F2;
+}
+
+@font-face {
+  font-family: "Soft Start Decor";
+  src: url("./decor-gujarati.woff2?no-inline") format("woff2");
+  font-display: swap;
+  unicode-range: U+0AEE;
+}
+
+@font-face {
+  font-family: "Soft Start Decor";
+  src: url("./decor-malayalam.woff2?no-inline") format("woff2");
+  font-display: swap;
+  unicode-range: U+0D12;
+}
+
+@font-face {
+  font-family: "Soft Start Decor";
+  src: url("./decor-music.woff2?no-inline") format("woff2");
+  font-display: swap;
+  unicode-range: U+1D122;
+}
+
+@font-face {
+  font-family: "Soft Start Decor";
+  src: url("./decor-punctuation.woff2?no-inline") format("woff2");
+  font-display: swap;
+  unicode-range: U+2E1D;
+}
+
+@font-face {
+  font-family: "Soft Start Decor";
+  src: url("./decor-tibetan.woff2?no-inline") format("woff2");
+  font-display: swap;
+  unicode-range: U+0F72, U+0F80;
+}
+
+@font-face {
+  font-family: "Soft Start Decor";
+  src: url("./decor-yi.woff2?no-inline") format("woff2");
+  font-display: swap;
+  unicode-range: U+30FB, U+A4B1;
+}

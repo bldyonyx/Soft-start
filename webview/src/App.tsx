@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { QuickActionMessage } from "../../src/quickActions";
 import { isPinnedProjectsMessage, isProjectActionMessage, isProjectLoadError, isRecentProjectsMessage, type DashboardMessage, type SettingsRequest, type ProjectActionMessage, type ProjectRequest, type ProjectItem, type RecentProjectItem } from "../../src/webviewMessages";
-import { visibleRecentProjects, type DashboardSettings } from "../../src/dashboardSettings";
+import { defaultSettings, visibleRecentProjects, type DashboardSettings } from "../../src/dashboardSettings";
 import { applyDashboardTheme } from "./dashboardTheme";
 import { SettingsView } from "./SettingsView";
 import { useDashboardSettings } from "./useDashboardSettings";
@@ -38,8 +38,8 @@ function Icon({ name }: { name: keyof typeof iconPaths }) {
   );
 }
 
-function Accent({ children }: { children: string }) {
-  return <span className="accent" aria-hidden="true">{children}</span>;
+function Accent({ children, className }: { children: string; className?: string }) {
+  return <span className={className ? `accent ${className}` : "accent"} aria-hidden="true">{children}</span>;
 }
 
 function DashboardSection({
@@ -583,7 +583,9 @@ function App() {
             {symbols && <span className="brand-mark"><Accent>𓏲ּ𝄢</Accent></span>}
             <span>Soft Start</span>
           </div>
-          {symbols && <Accent>{settings.saved.headerKaomoji}</Accent>}
+          {symbols && <Accent className={settings.saved.headerKaomoji === defaultSettings.headerKaomoji ? "default-header-kaomoji" : undefined}>
+            {settings.saved.headerKaomoji}
+          </Accent>}
           <button type="button" className="settings-gear" ref={settingsButton} aria-label="Open settings" title="Settings"
             onClick={() => {
               scrollPositions.current.dashboard = window.scrollY;

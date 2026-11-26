@@ -1,12 +1,10 @@
-.vscode/**
-.vscode-test/**
-src/**
-webview/**
-.gitignore
-.yarnrc
-vsc-extension-quickstart.md
-**/tsconfig.json
-**/eslint.config.mjs
-**/*.map
-**/*.ts
-**/.vscode-test.*
+# Package only the extension entry point, runtime modules, and built webview.
+# VSCE always includes package.json and README.md.
+**
+!CHANGELOG.md
+!out/*.js
+!out/*.js.map
+!media/index.html
+!media/assets/*.js
+!media/assets/*.css
+!media/assets/*.svg

@@ -14,7 +14,7 @@ export type ProjectItem = {
 export type RecentProjectItem = ProjectItem & { lastOpened: number };
 
 export const settingsHostMeta = "soft-start-settings-host";
-export const settingsHostVersion = "3";
+export const settingsHostVersion = "4";
 
 export type SettingsMutation =
   | { type: "saveSettings"; changes: SettingsPatch; expected: SettingsPatch }

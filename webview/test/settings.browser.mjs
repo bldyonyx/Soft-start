@@ -15,7 +15,7 @@ const hostScript = `
     const defaults = {
       backgroundColor: '#080709', accentColor: '#c5b3e5', panelOpacity: 85, artworkVisible: true,
       artworkOpacity: 14, welcomeMessage: 'Ready when you are', headerKaomoji: '૮ ᴗ͈ ˕ ✙╿ྀི꒱',
-      decorativeSymbols: true, recentProjectsLimit: 4, projectsDirectory: '', startupBehavior: 'never'
+      decorativeSymbols: true, recentProjectsLimit: 4, projectsDirectory: '', startupBehavior: 'never', showStatusBarItem: false
     };
     let saved = {...defaults, panelOpacity: 80};
     let welcome = 'available';
@@ -79,9 +79,9 @@ const hostScript = `
         saved = {...saved, startupBehavior:'never'};
         complete(request, 'Original VS Code startup preference restored.');
       } else if (request.type === 'restoreSettings') {
-        saved = {...defaults,projectsDirectory:saved.projectsDirectory,startupBehavior:saved.startupBehavior};
+        saved = {...defaults,projectsDirectory:saved.projectsDirectory,startupBehavior:saved.startupBehavior,showStatusBarItem:saved.showStatusBarItem};
         complete(request, 'Defaults restored.', {writes:{applied:Object.keys(defaults)
-          .filter(key => key !== 'projectsDirectory' && key !== 'startupBehavior'),rejected:{}}});
+          .filter(key => !['projectsDirectory','startupBehavior','showStatusBarItem'].includes(key)),rejected:{}}});
       }
     } });
     window.token = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -99,7 +99,7 @@ const server = createServer(async (request, response) => {
   try {
     let body = await readFile(join(media, path));
     if (path === "/index.html") {
-      const hostMarker = url.searchParams.has("legacy") ? "" : '<meta name="soft-start-settings-host" content="3">';
+      const hostMarker = url.searchParams.has("legacy") ? "" : '<meta name="soft-start-settings-host" content="4">';
       body = body.toString().replace("<head>", `<head>${hostMarker}<script nonce="test-host">${hostScript}</script>`)
         .replace(/<script type=/g, '<script nonce="test-host" type=');
     }
@@ -339,6 +339,9 @@ try {
   await input("fieldset:nth-of-type(3) input", "/home/test/edited");
   await click(replaceWelcome);
   await waitFor(`document.querySelector('${startupSelect}').value === 'emptyWindow'`);
+  const statusBarToggle = "fieldset:nth-of-type(4) input[type=checkbox]";
+  assert.equal(await evaluate(`document.querySelector('${statusBarToggle}').checked`), false);
+  await click(statusBarToggle);
   await evaluate(`(() => {
     const select = document.querySelector('${startupSelect}');
     select.value = 'always';
@@ -347,9 +350,11 @@ try {
   await click("button[type=submit]");
   await waitFor("document.querySelector('[role=status]')?.textContent === 'Settings saved.'");
   assert.ok(await evaluate("requests.some(request => request.changes?.startupBehavior === 'always')"));
+  assert.ok(await evaluate("requests.some(request => request.changes?.showStatusBarItem === true && request.expected.showStatusBarItem === false)"));
   await click(".settings-view form > .settings-actions button:last-child");
   await waitFor("document.querySelector('[role=status]')?.textContent === 'Defaults restored.'");
   assert.equal(await evaluate(`document.querySelector('${startupSelect}').value`), "always");
+  assert.equal(await evaluate(`document.querySelector('${statusBarToggle}').checked`), true);
   await click(restoreWelcome);
   await waitFor(`document.querySelector('${startupSelect}').value === 'never'`);
 

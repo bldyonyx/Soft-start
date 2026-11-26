@@ -1,6 +1,7 @@
 {
   "name": "soft-start",
   "displayName": "Soft Start",
+  "publisher": "bldyonyx",
   "description": "A cozy, customizable VS Code welcome dashboard",
   "version": "0.0.1",
   "engines": {
@@ -87,12 +88,18 @@
           "enum": ["emptyWindow", "always", "never"],
           "enumDescriptions": [
             "Open in empty windows with no restored editor tabs.",
-            "Open at startup in all windows while preserving focus in restored editors.",
+            "Open at startup in all windows. Open beside restored editors to preserve focus.",
             "Open only with the Soft Start: Open Dashboard command."
           ],
           "default": "never",
           "scope": "application",
           "description": "When to open Soft Start automatically. Automatic opening requires the effective VS Code Startup Editor to be None."
+        },
+        "softStart.showStatusBarItem": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "description": "Show a Soft Start button in the VS Code status bar to open the dashboard."
         },
         "softStart.projectsDirectory": {
           "type": "string",
@@ -106,6 +113,13 @@
       {
         "command": "soft-start.openDashboard",
         "title": "Soft Start: Open Dashboard"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "soft-start.openDashboard",
+        "key": "ctrl+alt+shift+d",
+        "mac": "cmd+alt+shift+d"
       }
     ]
   },

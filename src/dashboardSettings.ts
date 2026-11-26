@@ -12,6 +12,7 @@ export const defaultSettings = {
   recentProjectsLimit: 4,
   projectsDirectory: "",
   startupBehavior: "never" as StartupBehavior,
+  showStatusBarItem: false,
 };
 
 export type DashboardSettings = typeof defaultSettings;
@@ -23,7 +24,8 @@ export const kaomojiMaxLength = 80;
 export const recentLimits = { min: 1, max: 10 };
 
 export const settingKeys = Object.keys(defaultSettings) as SettingKey[];
-export const customizationKeys = settingKeys.filter((key) => key !== "projectsDirectory" && key !== "startupBehavior");
+export const customizationKeys = settingKeys.filter((key) =>
+  key !== "projectsDirectory" && key !== "startupBehavior" && key !== "showStatusBarItem");
 
 function integerIn(value: unknown, min: number, max: number) {
   return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
@@ -41,6 +43,7 @@ export function isSettingValue<K extends SettingKey>(key: K, value: unknown): va
       return integerIn(value, recentLimits.min, recentLimits.max);
     case "artworkVisible":
     case "decorativeSymbols":
+    case "showStatusBarItem":
       return typeof value === "boolean";
     case "welcomeMessage":
     case "headerKaomoji":

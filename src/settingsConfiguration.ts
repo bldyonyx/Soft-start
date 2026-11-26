@@ -35,6 +35,7 @@ export class SettingsConfiguration {
       recentProjectsLimit: readValue("recentProjectsLimit"),
       projectsDirectory: readValue("projectsDirectory"),
       startupBehavior: readValue("startupBehavior"),
+      showStatusBarItem: readValue("showStatusBarItem"),
     };
   }
 

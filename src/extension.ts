@@ -8,7 +8,7 @@ import { assertProjectOrigin, currentProject, openProject, presentProject, proje
 import { addPinnedProject, promptPinnedProjectName, selectProjectLocation } from "./pinnedProjects";
 import { DashboardPanel } from "./dashboardPanel";
 import { Startup, startupScope } from "./startup";
-import { onSettingsChanged } from "./settingsConfiguration";
+import { onSettingsChanged, SettingsConfiguration } from "./settingsConfiguration";
 import { SettingsWebview } from "./settingsWebview";
 import { isDashboardMessage, settingsHostMeta, settingsHostVersion, type ProjectActionMessage, type ProjectActionTarget, type PinnedProjectsMessage, type RecentProjectsMessage } from "./webviewMessages";
 
@@ -65,7 +65,8 @@ function reportSettingsDeliveryError(error: unknown) {
 
 export function activate(context: vscode.ExtensionContext) {
   const startup = new Startup(context.globalState, startupScope(context));
-  const settings = new SettingsWebview(undefined, undefined, undefined, startup);
+  const configuration = new SettingsConfiguration();
+  const settings = new SettingsWebview(configuration, undefined, undefined, startup);
   const dashboards = new Set<vscode.Webview>();
   let pendingStorage: ReturnType<typeof workspaceProjectStore> | undefined;
   let observedId: string | undefined;
@@ -141,7 +142,11 @@ export function activate(context: vscode.ExtensionContext) {
     const panel = vscode.window.createWebviewPanel(
       "softStart",
       "Soft Start",
-      { viewColumn: vscode.ViewColumn.One, preserveFocus },
+      {
+        // Opening in the active group would select the webview even with preserveFocus.
+        viewColumn: preserveFocus ? vscode.ViewColumn.Beside : vscode.ViewColumn.One,
+        preserveFocus,
+      },
       {
         enableScripts: true,
         localResourceRoots: [
@@ -314,8 +319,26 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   trackProject();
+  const openDashboard = "soft-start.openDashboard";
+  const statusBar = vscode.window.createStatusBarItem("softStart.dashboard", vscode.StatusBarAlignment.Right);
+  statusBar.name = "Soft Start";
+  statusBar.text = "Soft Start";
+  statusBar.tooltip = "Open Soft Start dashboard";
+  statusBar.accessibilityInformation = { label: "Open Soft Start dashboard", role: "button" };
+  statusBar.command = openDashboard;
+  function updateStatusBar() {
+    if (configuration.read().showStatusBarItem) {
+      statusBar.show();
+    } else {
+      statusBar.hide();
+    }
+  }
   context.subscriptions.push(
-    onSettingsChanged(publishSettings),
+    statusBar,
+    onSettingsChanged(() => {
+      updateStatusBar();
+      publishSettings();
+    }),
     vscode.workspace.onDidChangeWorkspaceFolders(trackProject),
     vscode.window.onDidChangeWindowState((state) => {
       if (state.focused) {
@@ -323,10 +346,9 @@ export function activate(context: vscode.ExtensionContext) {
         void recording.then(() => refreshProjects());
       }
     }),
-    vscode.commands.registerCommand("soft-start.openDashboard", () => dashboard.open()),
+    vscode.commands.registerCommand(openDashboard, () => dashboard.open()),
   );
-
-
+  updateStatusBar();
 
   if (context.extensionMode !== vscode.ExtensionMode.Test) {
     // Startup activation happens once per host. Closing a panel or changing settings never triggers opening.

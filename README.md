@@ -38,10 +38,14 @@ Appearance and dashboard preferences are application-scoped Soft Start user sett
 
 ## Use Soft Start at startup
 
+Press **Ctrl+Alt+Shift+D** on Windows or Linux, or **Cmd+Option+Shift+D** on macOS, to open or reveal Soft Start in any window where it is enabled. To change the binding, find **Soft Start: Open Dashboard** in VS Code’s Keyboard Shortcuts. In **Settings → Startup**, enable **Show Soft Start in status bar** and save. The status bar button opens the same dashboard even when automatic startup is off.
+
+To pin the dashboard tab, right-click its tab and choose **Pin**. VS Code exposes pin state through its public API but has no public operation for pinning a specific webview tab.
+
 The first time Soft Start activates, it offers **Set as startup page** or **Not now**. Either choice dismisses onboarding for this profile. You can set up the replacement later under **Settings → Startup** in Soft Start. Confirming replacement saves the original VS Code Startup Editor user preference, sets `workbench.startupEditor` to `none`, and selects **Empty windows only**. The new behavior applies on the next startup.
 
 - **Empty windows only** opens Soft Start in a window without a folder, workspace file, or restored editor tab.
-- **Always** also opens it in folder and multi-root workspaces, requesting that VS Code preserve focus when tabs are already open.
+- **Always** also opens it in folder and multi-root workspaces. When tabs are already open, Soft Start opens in a side editor group so the active editor keeps focus.
 - **Never** turns off automatic opening. **Soft Start: Open Dashboard** is available in every mode.
 
 Soft Start uses VS Code's configured startup editor and opens its own dashboard after startup. If another workspace or user preference sets the effective Startup Editor to something other than `none`, Soft Start skips automatic opening. It leaves restored editors, including a manually opened or restored Welcome tab, in VS Code's control. Closing the dashboard keeps it closed for the current extension-host session.
@@ -64,6 +68,19 @@ npm --prefix webview ci
 ```
 
 Run `npm run vscode:prepublish` to build the dashboard into `media/` and compile the extension into `out/`.
-Run `npx @vscode/vsce package --no-dependencies` to create a local VSIX. VSCE runs the same build automatically and includes the generated dashboard assets. The extension has no runtime npm dependencies.
+Run `npx @vscode/vsce package --no-dependencies --allow-missing-repository --skip-license` to create a local VSIX. VSCE runs the same build automatically and packages the compiled host, its source maps, and the generated dashboard assets. The extension has no runtime npm dependencies.
+
+The local package ID is `bldyonyx.soft-start`. To install it on Ubuntu in WSL, run the following from the repository root in the integrated terminal of a regular **WSL: Ubuntu** VS Code window:
+
+```sh
+code --install-extension "$PWD/soft-start-0.0.1.vsix"
+code --list-extensions --show-versions | grep -Fx 'bldyonyx.soft-start@0.0.1'
+```
+
+You can also use **Extensions: Install from VSIX...** in that WSL window. Reload if prompted, open **Soft Start: Open Dashboard**, and check **Developer: Show Running Extensions** for Soft Start on the WSL host. To turn on the startup page, use **Set as startup page** or the dashboard's **Settings → Startup**.
+
+Rebuild the VSIX and use `code --install-extension "$PWD/soft-start-0.0.1.vsix" --force` to replace an installed build with the same version. Use `code --uninstall-extension bldyonyx.soft-start` from that WSL terminal after restoring your startup preference as described above. Keep a copy of the extension's storage if you want to retain project history and pins for later use.
+
+F5 loads the checkout in the Extension Development Host and takes precedence over an installed copy with the same ID in that window. Regular windows continue using the installed build. The checkout and VSIX can share extension storage when they use the same profile and extension host. Older publisher-less development builds used `undefined_publisher.soft-start` and their project data stays under that ID.
 
 For local development, F5 builds the extension and dashboard together before opening the Extension Development Host. Stop and restart the debug session after changing the host or its webview protocol so the new dashboard connects to the matching host build. The foreground build is also the default VS Code build task. Use `npm run watch` separately for TypeScript watch mode and `npm --prefix webview run dev` for the standalone dashboard preview.

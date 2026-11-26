@@ -51,6 +51,7 @@ suite("Dashboard settings", () => {
       backgroundColor: "#ffffff", accentColor: "#131b2a", panelOpacity: 0, artworkVisible: false,
       artworkOpacity: 100, welcomeMessage: "<b>hello</b>", headerKaomoji: "hello",
       decorativeSymbols: false, recentProjectsLimit: 10, projectsDirectory: process.cwd(), startupBehavior: "always" as const,
+      showStatusBarItem: true,
     };
     await settings.update(changes);
     assert.deepEqual(new SettingsConfiguration(() => configuration).read(), changes);
@@ -64,7 +65,7 @@ suite("Dashboard settings", () => {
     for (const changes of [
       { backgroundColor: "red" }, { accentColor: "#abcdef; color:red" }, { panelOpacity: 100.1 },
       { artworkOpacity: -1 }, { artworkOpacity: NaN }, { recentProjectsLimit: 0 },
-      { recentProjectsLimit: 11 }, { projectsDirectory: "../relative" },
+      { recentProjectsLimit: 11 }, { projectsDirectory: "../relative" }, { showStatusBarItem: "true" },
     ]) {
       await assert.rejects(settings.update({ welcomeMessage: "Changed", ...changes }), /Invalid dashboard settings|absolute directory path/);
     }
@@ -186,7 +187,7 @@ suite("Dashboard settings", () => {
     const project = { uri: vscode.Uri.file(process.cwd()), name: "Test project", kind: "folder" as const };
     await history.record(project);
     await pinned.pin(project);
-    await settings.update({ welcomeMessage: "Changed", projectsDirectory: process.cwd(), startupBehavior: "always" });
+    await settings.update({ welcomeMessage: "Changed", projectsDirectory: process.cwd(), startupBehavior: "always", showStatusBarItem: true });
     values.set("editor.fontSize", 16);
     assert.equal(await settings.restoreDefaults(async () => false), undefined);
     assert.equal(settings.read().welcomeMessage, "Changed");
@@ -194,7 +195,7 @@ suite("Dashboard settings", () => {
     const recentBefore = values.get(recentProjectsKey);
     const pinnedBefore = values.get(pinnedProjectsKey);
     assert.deepEqual((await settings.restoreDefaults(async () => true))?.rejected, {});
-    assert.deepEqual(settings.read(), { ...defaultSettings, projectsDirectory: process.cwd(), startupBehavior: "always" });
+    assert.deepEqual(settings.read(), { ...defaultSettings, projectsDirectory: process.cwd(), startupBehavior: "always", showStatusBarItem: true });
     assert.equal(values.get(recentProjectsKey), recentBefore);
     assert.equal(values.get(pinnedProjectsKey), pinnedBefore);
     assert.equal(values.get("editor.fontSize"), 16);

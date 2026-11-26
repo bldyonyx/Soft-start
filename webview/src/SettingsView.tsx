@@ -60,7 +60,7 @@ const settingLabels: Record<SettingKey, string> = {
   backgroundColor: "Background color", accentColor: "Accent color", panelOpacity: "Panel opacity",
   artworkVisible: "Background artwork visibility", artworkOpacity: "Artwork opacity", welcomeMessage: "Welcome message",
   headerKaomoji: "Header kaomoji", decorativeSymbols: "Decorative symbols", recentProjectsLimit: "Visible recent projects",
-  startupBehavior: "Startup behavior", projectsDirectory: "Projects directory",
+  startupBehavior: "Startup behavior", showStatusBarItem: "Show Soft Start in status bar", projectsDirectory: "Projects directory",
 };
 
 export function SettingsView({ settings, back, preview }: {
@@ -178,7 +178,7 @@ export function SettingsView({ settings, back, preview }: {
               <option value="never">Never</option>
             </select>
           </label>
-          <p id="startup-behavior-help">Empty windows only skips restored tabs. Always includes workspaces and preserves focus on open editors. Never opens Soft Start only on demand. Automatic opening requires VS Code’s Startup Editor to be None.</p>
+          <p id="startup-behavior-help">Empty windows only skips restored tabs. Always includes workspaces and opens beside restored editors to preserve focus. Never opens Soft Start only on demand. Automatic opening requires VS Code’s Startup Editor to be None.</p>
           {settings.welcome === "changed" && <p>A VS Code preference is overriding the startup replacement.</p>}
           {settings.welcomeGuidance && <p id="welcome-restore-guidance">{settings.welcomeGuidance}</p>}
           {settings.welcome === "otherHost" && <p>Open the original VS Code host to restore its saved startup preference.</p>}
@@ -190,6 +190,12 @@ export function SettingsView({ settings, back, preview }: {
               {settings.welcomeGuidance ? "Disable Soft Start automatic startup" : "Restore original VS Code startup page"}
             </button>
           </div>
+          <label className="settings-check">
+            <input type="checkbox" checked={current.showStatusBarItem}
+              onChange={(event) => edit("showStatusBarItem", event.currentTarget.checked)} />
+            Show Soft Start in status bar
+          </label>
+          <p>To change the dashboard shortcut, search for Soft Start in VS Code’s Keyboard Shortcuts.</p>
         </fieldset>
 
         <div className="settings-actions">

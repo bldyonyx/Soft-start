@@ -5,6 +5,7 @@ import { defaultSettings, visibleRecentProjects, type DashboardSettings } from "
 import { applyDashboardTheme } from "./dashboardTheme";
 import { SettingsView } from "./SettingsView";
 import { useDashboardSettings } from "./useDashboardSettings";
+import { useTooltip } from "./useTooltip";
 import watermark from "./watermark.svg";
 import "./App.css";
 
@@ -89,6 +90,7 @@ type ProjectAction = { label: string; run: () => void; disabled?: boolean; destr
 function ProjectMenu({ name, actions, guidanceId }: { name: string; actions: ProjectAction[]; guidanceId?: string }) {
   const [expanded, setExpanded] = useState(false);
   const menuId = useId();
+  const hint = useTooltip("Project actions");
   const trigger = useRef<HTMLButtonElement>(null);
   const popup = useRef<HTMLDivElement>(null);
   const closeMenu = useCallback(() => {
@@ -169,6 +171,7 @@ function ProjectMenu({ name, actions, guidanceId }: { name: string; actions: Pro
       }}
     >
       <button
+        {...hint.trigger}
         ref={trigger}
         type="button"
         className="recent-menu-trigger"
@@ -180,6 +183,7 @@ function ProjectMenu({ name, actions, guidanceId }: { name: string; actions: Pro
       >
         <Icon name="more" />
       </button>
+      {hint.tooltip}
       <div ref={popup} id={menuId} className="recent-menu-items" popover="manual" hidden={!expanded}>
         {actions.map(({ label, run, disabled, destructive }) => (
           <button key={label} type="button" disabled={disabled} data-destructive={destructive || undefined}
@@ -194,21 +198,31 @@ function ProjectMenu({ name, actions, guidanceId }: { name: string; actions: Pro
 
 function ProjectOpenButton({ project, open, pinned }: { project: ProjectItem; open: () => void; pinned?: boolean }) {
   const id = useId();
+  const hint = useTooltip(<>
+    <span className="tooltip-project-name">{project.name}</span>
+    {project.hostLabel && <span>{project.hostLabel}</span>}
+    <span>{project.path}</span>
+  </>, {
+    when: (anchor) => Array.from(anchor.querySelectorAll(".recent-name, .recent-host, .recent-path"))
+      .some((text) => text.scrollWidth > text.clientWidth),
+  });
   const description = [pinned && `${id}-pin`, project.hostLabel && `${id}-host`, `${id}-path`].filter(Boolean).join(" ");
-  const location = project.hostLabel ? `${project.hostLabel} · ${project.path}` : project.path;
   return (
-    <button type="button" className="recent-open" disabled={project.unresolved} onClick={open}
-      aria-labelledby={`${id}-name`} aria-describedby={description} title={`${project.name}\n${location}`}>
-      <Icon name={project.kind} />
-      <span className="recent-project-info">
-        <span className="recent-heading">
-          <span className="recent-name" id={`${id}-name`}>{project.name}</span>
-          {pinned && <span className="recent-pin" id={`${id}-pin`} title="Pinned project" role="img" aria-label="Pinned project"><Icon name="pin" /></span>}
+    <>
+      <button {...hint.trigger} type="button" className="recent-open" disabled={project.unresolved} onClick={open}
+        aria-labelledby={`${id}-name`} aria-describedby={description}>
+        <Icon name={project.kind} />
+        <span className="recent-project-info">
+          <span className="recent-heading">
+            <span className="recent-name" id={`${id}-name`}>{project.name}</span>
+            {pinned && <span className="recent-pin" id={`${id}-pin`} role="img" aria-label="Pinned project"><Icon name="pin" /></span>}
+          </span>
+          {project.hostLabel && <span className="recent-host" id={`${id}-host`}>{project.hostLabel}</span>}
+          <span className="recent-path" id={`${id}-path`}>{project.path}</span>
         </span>
-        {project.hostLabel && <span className="recent-host" id={`${id}-host`}>{project.hostLabel}</span>}
-        <span className="recent-path" id={`${id}-path`}>{project.path}</span>
-      </span>
-    </button>
+      </button>
+      {hint.tooltip}
+    </>
   );
 }
 
@@ -221,17 +235,17 @@ function ProjectFeedback({ guidanceId, error }: { guidanceId?: string; error?: s
 
 function RecentProjectRow({ project, now, pinned, error, pending, send }: { project: RecentProjectItem; now: number; pinned: boolean; error?: string; pending: boolean; send: SendProject }) {
   const open = () => send({ type: "openRecentProject", id: project.id });
+  const timestamp = new Date(project.lastOpened);
+  const timeHint = useTooltip(timestamp.toLocaleString(), { describe: true });
   const guidanceId = project.unresolved ? `recent-${project.id}-guidance` : undefined;
   return (
     <li className="recent-row recent-project-row" aria-busy={pending || undefined}>
       <ProjectOpenButton project={project} open={open} pinned={pinned} />
-      <time
-        className="recent-time"
-        dateTime={new Date(project.lastOpened).toISOString()}
-        title={new Date(project.lastOpened).toLocaleString()}
-      >
+      <time {...timeHint.trigger} className="recent-time" dateTime={timestamp.toISOString()} tabIndex={0}
+        aria-describedby={timeHint.id}>
         {formatLastOpened(project.lastOpened, now)}
       </time>
+      {timeHint.tooltip}
       <ProjectMenu name={project.name} guidanceId={guidanceId} actions={[
         project.unresolved
           ? { label: "Locate project", run: () => send({ type: "locateRecentProject", id: project.id }) }
@@ -243,6 +257,23 @@ function RecentProjectRow({ project, now, pinned, error, pending, send }: { proj
       ]} />
       <ProjectFeedback guidanceId={guidanceId} error={error} />
     </li>
+  );
+}
+
+function DragHandle({ busy, onDragStart, onDragEnd }: {
+  busy: boolean;
+  onDragStart: (event: DragEvent<HTMLSpanElement>) => void;
+  onDragEnd: () => void;
+}) {
+  const hint = useTooltip("Drag to reorder", { when: () => !busy });
+  return (
+    <>
+      <span {...hint.trigger} className="pinned-drag-handle" aria-hidden="true" draggable={!busy}
+        onDragStart={onDragStart} onDragEnd={onDragEnd}>
+        <Icon name="grip" />
+      </span>
+      {hint.tooltip}
+    </>
   );
 }
 
@@ -319,11 +350,8 @@ function PinnedProjectsPanel({ projects, action, send }: { projects: ProjectItem
                   }
                 }}
               >
-                <span
-                  className="pinned-drag-handle"
-                  title="Drag to reorder"
-                  aria-hidden="true"
-                  draggable={!action.busy}
+                <DragHandle
+                  busy={action.busy}
                   onDragStart={(event) => {
                     event.dataTransfer.effectAllowed = "move";
                     event.dataTransfer.setData("text/plain", project.id);
@@ -332,9 +360,7 @@ function PinnedProjectsPanel({ projects, action, send }: { projects: ProjectItem
                     setDrag({ id: project.id });
                   }}
                   onDragEnd={() => setDrag(undefined)}
-                >
-                  <Icon name="grip" />
-                </span>
+                />
                 <ProjectOpenButton project={project} open={open} />
                 <ProjectMenu name={project.name} guidanceId={guidanceId} actions={[
                   project.unresolved
@@ -545,6 +571,7 @@ function App() {
   const settings = useDashboardSettings(postSettings);
   const [showSettings, setShowSettings] = useState(false);
   const settingsButton = useRef<HTMLButtonElement>(null);
+  const settingsHint = useTooltip("Settings");
   const scrollPositions = useRef<{ dashboard?: number; settings?: number }>({});
   const active = showSettings ? settings.preview : settings.saved;
   const { backgroundColor, accentColor, panelOpacity, artworkVisible, artworkOpacity } = active;
@@ -586,13 +613,14 @@ function App() {
           {symbols && <Accent className={settings.saved.headerKaomoji === defaultSettings.headerKaomoji ? "default-header-kaomoji" : undefined}>
             {settings.saved.headerKaomoji}
           </Accent>}
-          <button type="button" className="settings-gear" ref={settingsButton} aria-label="Open settings" title="Settings"
+          <button {...settingsHint.trigger} type="button" className="settings-gear" ref={settingsButton} aria-label="Open settings"
             onClick={() => {
               scrollPositions.current.dashboard = window.scrollY;
               setShowSettings(true);
             }}>
             <Icon name="settings" />
           </button>
+          {settingsHint.tooltip}
         </header>
 
         <WelcomeWindow settings={settings.saved} />

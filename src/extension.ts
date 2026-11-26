@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { createProject } from "./newProject";
 import { UnsupportedProjectStorageError, workspaceProjectStore } from "./projectStore";
@@ -19,6 +19,7 @@ function getNonce(): string {
 function getWebviewHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
+  developmentStylesheet?: vscode.Uri,
 ): string {
   const mediaUri = vscode.Uri.joinPath(extensionUri, "media");
   const htmlUri = vscode.Uri.joinPath(mediaUri, "index.html");
@@ -55,6 +56,11 @@ function getWebviewHtml(
     <meta http-equiv="Content-Security-Policy" content="${csp}">
     <meta name="${settingsHostMeta}" content="${settingsHostVersion}">`,
   );
+
+  if (developmentStylesheet) {
+    const href = webview.asWebviewUri(developmentStylesheet);
+    html = html.replace("</head>", `<link rel="stylesheet" href="${href}">\n</head>`);
+  }
 
   return html;
 }
@@ -146,6 +152,10 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   const dashboard = new DashboardPanel<vscode.WebviewPanel>((preserveFocus) => {
+    const fontRoot = vscode.Uri.joinPath(context.extensionUri, "branding", "fonts");
+    const signature = vscode.Uri.joinPath(fontRoot, "preview", "signature.f5.css");
+    const developmentStylesheet = context.extensionMode === vscode.ExtensionMode.Development &&
+      existsSync(signature.fsPath) ? signature : undefined;
     const panel = vscode.window.createWebviewPanel(
       "softStart",
       "Soft Start",
@@ -158,6 +168,7 @@ export function activate(context: vscode.ExtensionContext) {
         enableScripts: true,
         localResourceRoots: [
           vscode.Uri.joinPath(context.extensionUri, "media"),
+          ...(developmentStylesheet ? [fontRoot] : []),
         ],
       },
     );
@@ -346,7 +357,7 @@ export function activate(context: vscode.ExtensionContext) {
       listener.dispose();
     });
     try {
-      webview.html = getWebviewHtml(webview, context.extensionUri);
+      webview.html = getWebviewHtml(webview, context.extensionUri, developmentStylesheet);
       return panel;
     } catch (error) {
       panel.dispose();

@@ -268,13 +268,6 @@
   cursor: pointer;
 }
 
-.recent-open:hover,
-.recent-menu-trigger:hover,
-.recent-menu-items button:hover,
-.recent-view-all:hover {
-  background: var(--hover-surface);
-}
-
 .recent-open {
   display: flex;
   align-items: center;
@@ -439,10 +432,6 @@
   overflow-wrap: anywhere;
 }
 
-.utility-tile:enabled:hover {
-  background: var(--hover-surface);
-}
-
 .utility-tile:disabled {
   color: var(--muted);
   cursor: not-allowed;
@@ -487,10 +476,6 @@
   height: 28px;
   border-radius: 4px;
   cursor: grab;
-}
-
-.pinned-drag-handle:hover {
-  background: var(--hover-surface);
 }
 
 .pinned-drag-handle .icon {
@@ -551,11 +536,6 @@
 
 .dashboard-header > .accent + .settings-gear {
   margin-inline-start: 0;
-}
-
-.settings-gear:hover,
-.settings-view button:enabled:hover {
-  background: var(--hover-surface);
 }
 
 html:has(.settings-view) {
@@ -661,7 +641,7 @@ html:has(.settings-view) {
   text-underline-offset: 4px;
 }
 
-.settings-nav a:is(:hover, :focus-visible) {
+.settings-nav a:focus-visible {
   text-decoration-color: currentColor;
 }
 
@@ -1019,6 +999,96 @@ html:has(.settings-view) {
   }
 }
 
+.soft-start-tooltip {
+  position: fixed;
+  z-index: 2;
+  inline-size: max-content;
+  max-inline-size: min(360px, calc(100% - 16px));
+  max-block-size: calc(100% - 16px);
+  overflow: hidden;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, var(--lavender));
+  border-radius: 7px;
+  background: var(--elevated);
+  color: var(--secondary);
+  box-shadow: 0 4px 12px #0007;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  user-select: none;
+}
+
+.soft-start-tooltip > span {
+  display: block;
+  unicode-bidi: plaintext;
+}
+
+.tooltip-project-name {
+  color: var(--text);
+}
+
+.recent-menu-trigger[aria-expanded="true"],
+:is(.recent-menu-items button, .recent-view-all, .utility-tile, .settings-gear, .settings-view button):enabled:active {
+  background: color-mix(in srgb, var(--hover-surface) 84%, var(--lavender));
+}
+
+.utility-tile:enabled:active,
+.settings-gear:active,
+.settings-view button:enabled:active {
+  border-color: color-mix(in srgb, var(--border) 52%, var(--lavender));
+}
+
+.pinned-drag-handle[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.project-actions:not([aria-disabled="true"])
+  .recent-project-row:not([aria-busy="true"], [data-dragging], [data-drop]):has(.recent-open:enabled):not(:has(.recent-open:active)):hover {
+  background: color-mix(in srgb, var(--inner-surface) 48%, var(--hover-surface));
+  border-color: color-mix(in srgb, var(--border) 76%, var(--lavender));
+}
+
+.project-actions:not([aria-disabled="true"])
+  .recent-project-row:not([aria-busy="true"], [data-dragging], [data-drop]):hover .recent-open:enabled
+  :is(.recent-name, .recent-open > .icon) {
+  color: color-mix(in srgb, var(--text) 72%, var(--lavender));
+}
+
+.project-actions:not([aria-disabled="true"]) .recent-project-row:has(.recent-open:enabled:active) {
+  background: var(--hover-surface);
+  border-color: color-mix(in srgb, var(--border) 52%, var(--lavender));
+}
+
+.project-actions:not([aria-disabled="true"]) :is(.recent-menu-trigger[aria-expanded="false"],
+    .recent-menu-items button, .recent-view-all, .utility-tile):enabled:hover:not(:active),
+:is(.settings-gear, .settings-view button):enabled:hover:not(:active) {
+  background: var(--hover-surface);
+}
+
+.project-actions:not([aria-disabled="true"]) .utility-tile:enabled:hover:not(:active),
+:is(.settings-gear, .settings-view button, .settings-view input[type="text"],
+    .settings-view input[type="color"], .settings-view select):enabled:hover:not(:active, [aria-invalid="true"]) {
+  border-color: color-mix(in srgb, currentColor 34%, var(--border));
+}
+
+.project-actions:not([aria-disabled="true"]) .pinned-drag-handle[draggable="true"]:hover > .icon,
+.settings-check:has(input:enabled):hover {
+  color: var(--lavender);
+}
+
+.settings-range input:enabled:hover::-webkit-slider-thumb {
+  border-color: var(--lavender);
+}
+
+.settings-nav a:hover {
+  text-decoration-color: currentColor;
+}
+
+.settings-nav a:active {
+  color: var(--text);
+}
+
 @media (prefers-reduced-motion: no-preference) {
   :root {
     --motion-fast: 120ms;
@@ -1040,19 +1110,12 @@ html:has(.settings-view) {
     animation: menu-enter var(--motion-fast) var(--motion-ease-out);
   }
 
-  :is(.recent-open, .recent-menu-trigger, .recent-menu-items button, .recent-view-all, .pinned-drag-handle,
-      .utility-tile, .settings-gear, .settings-view button, .settings-view input, .settings-view select, .settings-check) {
-    transition-property: background-color, border-color, color, opacity;
+  :is(.recent-project-row, .recent-name, .recent-open > .icon, .recent-menu-trigger, .recent-menu-items button,
+      .recent-view-all, .pinned-drag-handle > .icon, .utility-tile, .settings-gear, .settings-view button,
+      .settings-view input, .settings-view select, .settings-check, .settings-nav a) {
+    transition-property: background-color, border-color, color, opacity, text-decoration-color;
     transition-duration: var(--motion-fast);
     transition-timing-function: var(--motion-ease-out);
-  }
-
-  .settings-check:has(input:enabled):hover {
-    color: var(--lavender);
-  }
-
-  .settings-range input:enabled:hover::-webkit-slider-thumb {
-    border-color: var(--lavender);
   }
 
   .settings-range input::-webkit-slider-thumb {
@@ -1060,7 +1123,6 @@ html:has(.settings-view) {
       border-color var(--motion-fast) var(--motion-ease-out);
   }
 
-  .recent-project-row,
   .settings-save-state {
     transition: border-color var(--motion-standard) var(--motion-ease-out),
       color var(--motion-standard) var(--motion-ease-out);

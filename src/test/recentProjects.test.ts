@@ -1,4 +1,5 @@
 import * as assert from "node:assert/strict";
+import { homedir } from "node:os";
 import * as vscode from "vscode";
 import {
   currentProject, openRecentProject, presentProject, projectId, RecentProjects,
@@ -168,6 +169,14 @@ suite("Current project selection", () => {
     assert.equal(currentProject({ workspaceFile, workspaceFolders: [], name: undefined })?.kind, "workspace");
   });
 
+  test("tracks the home directory only when VS Code reports it as a workspace", () => {
+    const uri = vscode.Uri.file(homedir());
+    const home = { uri, name: "Home", index: 0 };
+    assert.equal(currentProject({ workspaceFile: undefined, workspaceFolders: undefined, name: home.name }), undefined);
+    assert.deepEqual(currentProject({ workspaceFile: undefined, workspaceFolders: [home], name: home.name }),
+      { uri, name: home.name, kind: "folder" });
+  });
+
   test("skips empty windows and untitled workspaces", () => {
     for (const workspaceFolders of [undefined, []]) {
       assert.equal(currentProject({ workspaceFile: undefined, workspaceFolders, name: undefined }), undefined);
@@ -206,7 +215,7 @@ suite("Opening recent projects", () => {
     ]) {
       await assert.rejects(openRecentProject(entry, async () => { throw error; }, async () => {
         assert.fail("An unavailable project must not reach the open command");
-      }), { message: `Could not open "unavailable". ${error.message}` });
+      }), { message: "Could not open \"unavailable\". Check that the location still exists and that you have access." });
       assert.deepEqual(history.list(), [entry]);
     }
   });

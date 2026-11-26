@@ -8,6 +8,7 @@ export type ProjectItem = {
   name: string;
   path: string;
   kind: ProjectKind;
+  unresolved?: boolean;
 };
 
 export type RecentProjectItem = ProjectItem & { lastOpened: number };
@@ -57,19 +58,28 @@ export type DashboardMessage =
   | { type: "requestRecentProjects" | "viewAllRecentProjects" }
   | { type: "addPinnedProject" }
   | { type: "openRecentProject" | "removeRecentProject" | "pinRecentProject" |
-      "openPinnedProject" | "renamePinnedProject" | "unpinProject"; id: string }
+      "openPinnedProject" | "renamePinnedProject" | "unpinProject" | "locatePinnedProject" | "locateRecentProject"; id: string }
   | { type: "reorderPinnedProjects"; ids: string[] };
 
 export type RecentProjectsMessage = { type: "recentProjects"; projects: RecentProjectItem[] };
 
 export type PinnedProjectsMessage = { type: "pinnedProjects"; projects: ProjectItem[] };
 
-export type ProjectActionMessage = { type: "projectAction"; busy: boolean; error?: string };
+export type ProjectActionTarget = { section: "pins" | "recent" | "quick"; id?: string };
+
+export type ProjectActionMessage = { type: "projectAction"; busy: boolean; error?: string; target?: ProjectActionTarget };
+
+function isProjectActionTarget(value: unknown): value is ProjectActionTarget {
+  return typeof value === "object" && value !== null && "section" in value &&
+    (value.section === "pins" || value.section === "recent" || value.section === "quick") &&
+    (!("id" in value) || value.id === undefined || isProjectId(value.id));
+}
 
 export function isProjectActionMessage(value: unknown): value is ProjectActionMessage {
   return typeof value === "object" && value !== null &&
     "type" in value && value.type === "projectAction" && "busy" in value && typeof value.busy === "boolean" &&
-    (!("error" in value) || value.error === undefined || typeof value.error === "string");
+    (!("error" in value) || value.error === undefined || typeof value.error === "string") &&
+    (!("target" in value) || value.target === undefined || isProjectActionTarget(value.target));
 }
 
 function isProjectId(value: unknown): value is string {
@@ -113,6 +123,8 @@ export function isDashboardMessage(value: unknown): value is DashboardMessage {
     case "pinRecentProject":
     case "openPinnedProject":
     case "renamePinnedProject":
+    case "locatePinnedProject":
+    case "locateRecentProject":
     case "unpinProject":
       return "id" in value && isProjectId(value.id);
     case "reorderPinnedProjects":
@@ -128,7 +140,8 @@ function isProjectItem(value: unknown): value is ProjectItem {
     "id" in value && isProjectId(value.id) &&
     "name" in value && typeof value.name === "string" &&
     "path" in value && typeof value.path === "string" &&
-    "kind" in value && (value.kind === "folder" || value.kind === "workspace");
+    "kind" in value && (value.kind === "folder" || value.kind === "workspace") &&
+    (!("unresolved" in value) || typeof value.unresolved === "boolean");
 }
 
 export function isProjectTimestamp(value: unknown): value is number {

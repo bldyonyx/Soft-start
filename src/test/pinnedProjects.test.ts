@@ -192,7 +192,7 @@ suite("Pinned projects", () => {
 
   test("validates pinned messages and rejects malformed identifiers, orders and project data", () => {
     const id = "a".repeat(64);
-    for (const type of ["pinRecentProject", "openPinnedProject", "renamePinnedProject", "unpinProject"]) {
+    for (const type of ["pinRecentProject", "openPinnedProject", "renamePinnedProject", "unpinProject", "locatePinnedProject", "locateRecentProject"]) {
       assert.equal(isDashboardMessage({ type, id }), true);
       assert.equal(isDashboardMessage({ type, id: "file:///tmp/project" }), false);
       assert.equal(isDashboardMessage({ type, path: "/tmp/project" }), false);

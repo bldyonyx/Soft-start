@@ -114,7 +114,7 @@ export function migrateProject(value: unknown): IdentifiedProject | undefined {
 
 export function assertProjectOrigin(entry: IdentifiedProject, host?: Extract<ProjectOrigin, { kind: "host" }>): void {
   if (entry.origin.kind === "unknown") {
-    throw new Error("Soft Start cannot verify this saved project's original host. Open it from the correct VS Code window and pin it again if needed.");
+    throw new Error("Soft Start cannot verify this saved project's original host. From a VS Code window connected to the project, use Locate project in its menu.");
   }
   if (entry.origin.kind === "host" && entry.origin.key !== host?.key) {
     throw new Error(`Open this project from its original ${entry.origin.label} environment.`);
@@ -127,8 +127,9 @@ export function presentProject(entry: StoredProject | IdentifiedProject): Projec
   const path = uri.scheme === "file" ? uri.fsPath :
     uri.authority ? `${uri.authority}${uri.path}` : `${uri.scheme}:${uri.path}`;
   const origin = "origin" in entry ? entry.origin : undefined;
-  const originLabel = origin?.kind === "unknown" ? "Unknown host" : origin?.kind === "host" ? origin.label : undefined;
-  return { id, name, kind, path: originLabel ? `${originLabel} · ${path}` : path };
+  const originLabel = origin?.kind === "host" ? origin.label : undefined;
+  return { id, name, kind, path: originLabel ? `${originLabel} · ${path}` : path,
+    ...(origin?.kind === "unknown" ? { unresolved: true } : {}) };
 }
 
 export function currentProject(
@@ -161,7 +162,9 @@ export async function openProject(
     }
     await open(uri);
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = error instanceof vscode.FileSystemError
+      ? "Check that the location still exists and that you have access."
+      : error instanceof Error ? error.message : String(error);
     const recovery = uri.scheme === "vscode-remote" && uri.authority
       ? ` Connect to ${uri.authority} and verify the original project exists.` : "";
     throw new Error(`Could not open "${entry.name}". ${detail}${recovery}`);

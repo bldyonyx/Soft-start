@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { QuickActionMessage } from "../../src/quickActions";
-import { isPinnedProjectsMessage, isProjectActionMessage, isRecentProjectsMessage, type DashboardMessage, type SettingsRequest, type ProjectItem, type RecentProjectItem } from "../../src/webviewMessages";
+import { isPinnedProjectsMessage, isProjectActionMessage, isRecentProjectsMessage, type DashboardMessage, type SettingsRequest, type ProjectActionMessage, type ProjectItem, type RecentProjectItem } from "../../src/webviewMessages";
 import { visibleRecentProjects, type DashboardSettings } from "../../src/dashboardSettings";
 import { applyDashboardTheme } from "./dashboardTheme";
 import { SettingsView } from "./SettingsView";
@@ -133,7 +133,7 @@ function ProjectMenu({ name, actions }: { name: string; actions: ProjectAction[]
 
 function ProjectOpenButton({ project, open }: { project: ProjectItem; open: () => void }) {
   return (
-    <button type="button" className="recent-open" onClick={open} title={project.path}>
+    <button type="button" className="recent-open" disabled={project.unresolved} onClick={open} title={project.path}>
       <Icon name={project.kind} />
       <span className="recent-project-info">
         <span className="recent-name">{project.name}</span>
@@ -143,7 +143,14 @@ function ProjectOpenButton({ project, open }: { project: ProjectItem; open: () =
   );
 }
 
-function RecentProjectRow({ project, now, pinned }: { project: RecentProjectItem; now: number; pinned: boolean }) {
+function ProjectFeedback({ project, error }: { project: ProjectItem; error?: string }) {
+  return <>
+    {project.unresolved && <p className="project-row-message">Confirm this location with Locate project in the menu.</p>}
+    {error && <p className="project-row-message" role="alert">{error}</p>}
+  </>;
+}
+
+function RecentProjectRow({ project, now, pinned, error }: { project: RecentProjectItem; now: number; pinned: boolean; error?: string }) {
   const open = () => vscode?.postMessage({ type: "openRecentProject", id: project.id });
   return (
     <li className="recent-row recent-project-row">
@@ -157,17 +164,20 @@ function RecentProjectRow({ project, now, pinned }: { project: RecentProjectItem
         {formatLastOpened(project.lastOpened, now)}
       </time>
       <ProjectMenu name={project.name} actions={[
-        { label: "Open project", run: open },
-        { label: pinned ? "Unpin project" : "Pin project", run: () => vscode?.postMessage({
+        project.unresolved
+          ? { label: "Locate project", run: () => vscode?.postMessage({ type: "locateRecentProject", id: project.id }) }
+          : { label: "Open project", run: open },
+        { disabled: project.unresolved, label: pinned ? "Unpin project" : "Pin project", run: () => vscode?.postMessage({
           type: pinned ? "unpinProject" : "pinRecentProject", id: project.id,
         }) },
         { label: "Remove from recent projects", run: () => vscode?.postMessage({ type: "removeRecentProject", id: project.id }) },
       ]} />
+      <ProjectFeedback project={project} error={error} />
     </li>
   );
 }
 
-function PinnedProjectsPanel({ projects, busy }: { projects: ProjectItem[]; busy: boolean }) {
+function PinnedProjectsPanel({ projects, busy, action }: { projects: ProjectItem[]; busy: boolean; action: ProjectActionMessage }) {
   const [drag, setDrag] = useState<{ id: string; over?: string }>();
   const source = drag ? projects.findIndex(({ id }) => id === drag.id) : -1;
 
@@ -235,12 +245,15 @@ function PinnedProjectsPanel({ projects, busy }: { projects: ProjectItem[]; busy
                 </span>
                 <ProjectOpenButton project={project} open={open} />
                 <ProjectMenu name={project.name} actions={[
-                  { label: "Open project", run: open },
+                  project.unresolved
+                    ? { label: "Locate project", run: () => vscode?.postMessage({ type: "locatePinnedProject", id: project.id }) }
+                    : { label: "Open project", run: open },
                   { label: "Rename", run: () => vscode?.postMessage({ type: "renamePinnedProject", id: project.id }) },
                   { label: "Move up", disabled: index === 0, run: () => move(index, index - 1) },
                   { label: "Move down", disabled: index === projects.length - 1, run: () => move(index, index + 1) },
                   { label: "Unpin project", run: () => vscode?.postMessage({ type: "unpinProject", id: project.id }) },
                 ]} />
+                <ProjectFeedback project={project} error={action.target?.section === "pins" && action.target.id === project.id ? action.error : undefined} />
               </li>
             );
           })}
@@ -255,6 +268,8 @@ function PinnedProjectsPanel({ projects, busy }: { projects: ProjectItem[]; busy
         onClick={() => vscode?.postMessage({ type: "addPinnedProject" })}>
         Add project
       </button>
+      {action.target?.section === "pins" && !projects.some(({ id }) => id === action.target?.id) && action.error &&
+        <p className="project-action-message" role="alert">{action.error}</p>}
     </div>
   );
 }
@@ -263,7 +278,7 @@ function useProjectLists() {
   const [recent, setRecent] = useState<RecentProjectItem[]>([]);
   const [pinned, setPinned] = useState<ProjectItem[]>([]);
   const [now, setNow] = useState(Date.now);
-  const [action, setAction] = useState<{ busy: boolean; error?: string }>({ busy: false });
+  const [action, setAction] = useState<ProjectActionMessage>({ type: "projectAction", busy: false });
 
   useEffect(() => {
     if (!vscode) {
@@ -292,17 +307,20 @@ function useProjectLists() {
   return { recent, pinned, now, action };
 }
 
-function RecentProjectsPanel({ projects, pinned, now, limit }: {
+function RecentProjectsPanel({ projects, pinned, now, limit, action }: {
   projects: RecentProjectItem[];
   pinned: Set<string>;
   now: number;
   limit: number;
+  action: ProjectActionMessage;
 }) {
+  const visible = visibleRecentProjects(projects, limit);
+  const errorId = action.target?.section === "recent" ? action.target.id : undefined;
   return (
     <div className="project-panel recent-panel">
       <ul className="recent-list">
-        {projects.length ? visibleRecentProjects(projects, limit).map((project) => (
-          <RecentProjectRow key={project.id} project={project} now={now} pinned={pinned.has(project.id)} />
+        {projects.length ? visible.map((project) => (
+          <RecentProjectRow key={project.id} project={project} now={now} pinned={pinned.has(project.id)} error={errorId === project.id ? action.error : undefined} />
         )) : (
           <li className="recent-row">
             <Icon name="clock" />
@@ -319,6 +337,8 @@ function RecentProjectsPanel({ projects, pinned, now, limit }: {
           View all recent projects
         </button>
       )}
+      {action.target?.section === "recent" && !visible.some(({ id }) => id === errorId) && action.error &&
+        <p className="project-action-message" role="alert">{action.error}</p>}
     </div>
   );
 }
@@ -398,11 +418,11 @@ function App() {
           }}>
           <div className="project-columns">
             <DashboardSection id="pinned-projects" title="Pinned projects" accent={symbols ? "ഒ" : undefined}>
-              <PinnedProjectsPanel projects={pinned} busy={projectAction.busy} />
+              <PinnedProjectsPanel projects={pinned} busy={projectAction.busy} action={projectAction} />
             </DashboardSection>
 
             <DashboardSection id="recent-projects" title="Recent projects" accent={symbols ? "⸝⸝" : undefined}>
-              <RecentProjectsPanel projects={recent} now={now} limit={settings.saved.recentProjectsLimit} pinned={new Set(pinned.map(({ id }) => id))} />
+              <RecentProjectsPanel projects={recent} action={projectAction} now={now} limit={settings.saved.recentProjectsLimit} pinned={new Set(pinned.map(({ id }) => id))} />
             </DashboardSection>
           </div>
 
@@ -423,7 +443,7 @@ function App() {
             </div>
           </DashboardSection>
         </div>
-        {projectAction.error && <p className="project-action-message" role="alert">{projectAction.error}</p>}
+        {(!projectAction.target || projectAction.target.section === "quick") && projectAction.error && <p className="project-action-message" role="alert">{projectAction.error}</p>}
         {projectAction.busy && <p className="project-action-message" role="status">Working on a project action…</p>}
       </main>
       {showSettings && (

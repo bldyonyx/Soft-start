@@ -1,16 +1,16 @@
 import * as vscode from "vscode";
-import type { ProjectActionMessage } from "./webviewMessages";
+import type { ProjectActionMessage, ProjectActionTarget } from "./webviewMessages";
 
 export class ProjectActions {
   private busy = false;
 
   constructor(private readonly publish: (status: ProjectActionMessage) => void) {}
 
-  status(error?: string): ProjectActionMessage {
-    return { type: "projectAction", busy: this.busy, error };
+  status(error?: string, target?: ProjectActionTarget): ProjectActionMessage {
+    return { type: "projectAction", busy: this.busy, error, target };
   }
 
-  async run(action: () => Promise<void>): Promise<void> {
+  async run(action: (focus: (target: ProjectActionTarget) => void) => Promise<void>, target?: ProjectActionTarget): Promise<void> {
     if (this.busy) {
       this.publish(this.status("A project action is already running. Try again when it finishes."));
       return;
@@ -18,13 +18,14 @@ export class ProjectActions {
     this.busy = true;
     this.publish(this.status());
     let error: string | undefined;
+    const focus = (next: ProjectActionTarget) => { target = next; };
     try {
-      await action();
+      await action(focus);
     } catch (reason) {
       error = reason instanceof Error ? reason.message : String(reason);
     } finally {
       this.busy = false;
-      this.publish(this.status(error));
+      this.publish(this.status(error, target));
     }
   }
 }

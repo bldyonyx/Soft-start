@@ -23,10 +23,18 @@ export async function selectPinnedProject(
   if (!choice) {
     return;
   }
-  const folder = choice.projectKind === "folder";
-  const selection = await window.showOpenDialog({
-    title: folder ? "Select a project folder" : "Select a saved workspace file",
-    openLabel: "Pin project",
+  return selectProjectLocation(choice.projectKind, window.showOpenDialog.bind(window));
+}
+
+export async function selectProjectLocation(
+  kind: ProjectKind,
+  showOpenDialog: typeof vscode.window.showOpenDialog = vscode.window.showOpenDialog,
+  locating = false,
+): Promise<Project | undefined> {
+  const folder = kind === "folder";
+  const selection = await showOpenDialog({
+    title: `${locating ? "Locate" : "Select"} ${folder ? "a project folder" : "a saved workspace file"}`,
+    openLabel: locating ? "Use this location" : "Pin project",
     canSelectFolders: folder,
     canSelectFiles: !folder,
     canSelectMany: false,
@@ -37,7 +45,17 @@ export async function selectPinnedProject(
     if (!folder && !uri.path.toLowerCase().endsWith(".code-workspace")) {
       throw new Error("Select a saved .code-workspace file.");
     }
-    return { uri, name: posix.basename(uri.path) || uri.authority || uri.path, kind: choice.projectKind };
+    return { uri, name: posix.basename(uri.path) || uri.authority || uri.path, kind };
+  }
+}
+
+export async function addPinnedProject(
+  store: { pin(project: Project): Promise<void> },
+  window: ProjectPicker = vscode.window,
+): Promise<void> {
+  const project = await selectPinnedProject(window);
+  if (project) {
+    await store.pin(project);
   }
 }
 

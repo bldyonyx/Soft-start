@@ -12,11 +12,21 @@ Soft Start is a VS Code extension with a React dashboard. Open it from the Comma
 
 Set `softStart.projectsDirectory` in VS Code Settings to an existing absolute folder on the active host. In a WSL or other remote window, use the Remote settings for that host. Leave it empty to pick a parent folder each time.
 
+## Recent and pinned projects
+
+Recent Projects starts collecting history when Soft Start runs in a window with an open folder or a saved workspace. Empty windows and untitled workspaces are skipped. A terminal's working directory has no effect. If you open your home folder as the workspace, it is eligible like any other folder. Use a recent row's menu to pin a project or remove it from Soft Start's history.
+
+VS Code does not expose a supported extension API for reading the history shown on Welcome or in **File → Open Recent**. To build Soft Start's history, reopen projects from **File → Open Recent** in a window where Soft Start can activate. To bookmark an existing folder or saved workspace without opening it, use **Add project** in Pinned Projects. The New Project directory setting applies only to project creation.
+
+An optional directory import could browse for a parent folder and let you choose its immediate child folders in a multi-select picker. Each verified selection would be saved as a pin. Recent Projects would continue to reflect workspace opens.
+
+During extension development, only windows that load the development extension contribute to its history. Use **Developer: Show Running Extensions** in the destination window to check where Soft Start is running. In a regular WSL window, Soft Start needs to be available on the WSL extension host.
+
 ## Project storage across windows
 
 Recent and pinned projects are shared by windows using the same Soft Start storage directory and host identity. Native paths are bound to the originating host. Soft Start preserves an explicit authority when VS Code provides one. Profiles, local installs, WSL distributions, and SSH hosts with separate stores do not synchronize their project histories. WSL uses the reported distro name and machine ID, and SSH uses the remote machine ID where available. If the host cannot be verified, Soft Start requires an explicitly addressed project.
 
-On first use, each store saves a versioned snapshot of the old project lists in `projects-v2/<host>/legacy.json` under VS Code's extension storage directory. The old VS Code state stays intact. Legacy entries with an unknown host remain visible and can be renamed or removed. To reopen one, locate it in the correct VS Code window and pin the verified project again. Keep the legacy state and journal files if the migration reports an error.
+On first use, each store saves a versioned snapshot of the old project lists in `projects-v2/<host>/legacy.json` under VS Code's extension storage directory. The old VS Code state stays intact. Legacy entries with an unverified location remain visible. Use **Locate project** in the entry’s menu from a VS Code window connected to the correct location, or remove the entry if it is no longer useful. Keep the legacy state and journal files if the migration reports an error.
 
 Project updates are published as individual files using the native filesystem. VS Code windows sharing that filesystem and directory converge on the same operation order. The store requires atomic hard-link support and keeps its operation history for recovery. Independent stores do not provide cross-host transactions. Native New Project uses exclusive directory creation. A provider that exposes only VS Code's directory API can report pre-existing items during preflight, but cannot guarantee exclusive creation during a race. Soft Start never writes to an existing project's contents.
 

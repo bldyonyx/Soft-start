@@ -1,5 +1,5 @@
 import * as assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
@@ -8,7 +8,7 @@ import { projectHostIdentity } from "../projectHost";
 import { ProjectJournal } from "../projectJournal";
 import { ProjectStore } from "../projectStore";
 import { assertProjectOrigin, identifyProject, projectId, serializeUri } from "../projects";
-import { pinnedProjectsKey } from "../pinnedProjects";
+import { addPinnedProject, pinnedProjectsKey, selectProjectLocation } from "../pinnedProjects";
 import { recentProjectsKey } from "../recentProjects";
 
 const folder = (name: string, uri = vscode.Uri.file(join(tmpdir(), name))) => ({ uri, name, kind: "folder" as const });
@@ -71,6 +71,96 @@ suite("Project origins and journal", () => {
     assert.deepEqual(await new ProjectStore(new ProjectJournal(path), host, original).read(), snapshot);
     await store.unpin(snapshot.pins[0].id);
     assert.ok(!(await store.read()).pins.some(({ id }) => id === snapshot.pins[0].id));
+  });
+
+  test("adds unopened folders outside the New Project directory and saved workspaces without opening them", async () => {
+    const store = new ProjectStore(new ProjectJournal(path), host, legacy);
+    const settings = vscode.workspace.getConfiguration("softStart");
+    const projectsDirectory = settings.inspect<string>("projectsDirectory");
+    const root = join(path, "new-projects");
+    const outside = join(path, "unopened");
+    const file = join(path, "saved.code-workspace");
+    await mkdir(root);
+    await mkdir(outside);
+    await writeFile(file, '{"folders":[]}');
+    const originalWorkspace = vscode.workspace.workspaceFolders;
+    const originalWorkspaceFile = vscode.workspace.workspaceFile;
+    await settings.update("projectsDirectory", root, vscode.ConfigurationTarget.Global);
+    try {
+      for (const [kind, location] of [["folder", outside], ["workspace", file]] as const) {
+        await addPinnedProject(store, {
+          showQuickPick: async (choices) => choices.find((choice) => choice.projectKind === kind),
+          showOpenDialog: async (options) => {
+            assert.equal(options?.defaultUri, undefined);
+            return [vscode.Uri.file(location)];
+          },
+        });
+      }
+      const { pins, recent } = await store.read();
+      assert.deepEqual(pins.map(({ uri, kind }) => [vscode.Uri.from(uri).fsPath, kind]),
+        [[outside, "folder"], [file, "workspace"]]);
+      assert.deepEqual(recent, []);
+      assert.deepEqual(vscode.workspace.workspaceFolders, originalWorkspace);
+      assert.deepEqual(vscode.workspace.workspaceFile, originalWorkspaceFile);
+    } finally {
+      await settings.update("projectsDirectory", projectsDirectory?.globalValue, vscode.ConfigurationTarget.Global);
+    }
+  });
+
+  test("cancelling folder selection leaves the journal untouched", async () => {
+    const store = new ProjectStore(new ProjectJournal(path), host, legacy);
+    await addPinnedProject(store, {
+      showQuickPick: async ([choice]) => choice,
+      showOpenDialog: async () => undefined,
+    });
+    assert.deepEqual(await readdir(path), []);
+  });
+
+  test("locates a legacy workspace in place and retains its custom name, kind and timestamps", async () => {
+    const project = { ...folder("legacy.code-workspace"), kind: "workspace" as const };
+    const raw = { ...project, id: projectId(project.uri), uri: serializeUri(project.uri) };
+    const wsl = projectHostIdentity("wsl", "remote-machine", "Ubuntu");
+    const source = { get: <T>(key: string) => (key === pinnedProjectsKey
+      ? [{ ...raw, displayName: "Custom", pinnedAt: 2 }]
+      : [{ ...raw, lastOpened: 9 }]) as T };
+    const journal = new ProjectJournal(path);
+    const store = new ProjectStore(journal, wsl, source);
+    await store.pin(folder("first"), 3);
+    await store.pin(folder("last"), 4);
+    const [old, first, last] = (await store.read()).pins;
+    await store.reorder([first.id, old.id, last.id]);
+    const uri = vscode.Uri.file(join(path, "found.code-workspace"));
+    await writeFile(uri.fsPath, '{"folders":[]}');
+    const selection = await selectProjectLocation(old.kind, async (options) => {
+      assert.equal(options?.openLabel, "Use this location");
+      assert.equal(options?.canSelectFiles, true);
+      return [uri];
+    }, true);
+    assert.ok(selection);
+    await store.locate("pins", old.id, selection);
+    await store.locate("recent", old.id, selection);
+    const snapshot = await new ProjectStore(journal, wsl, source).read();
+    const found = identifyProject(selection, wsl);
+    assert.deepEqual(snapshot.pins, [first, { ...found, pinnedAt: 2, displayName: "Custom" }, last]);
+    assert.deepEqual(snapshot.recent, [{ ...found, lastOpened: 9 }]);
+    assert.throws(() => assertProjectOrigin(snapshot.pins[1], host), /original WSL/);
+  });
+
+  test("rejects ambiguous recovery and keeps both entries when a location is already pinned", async () => {
+    const project = folder("legacy", vscode.Uri.file(join(path, "legacy")));
+    await mkdir(project.uri.fsPath);
+    const raw = { ...project, id: projectId(project.uri), uri: serializeUri(project.uri), pinnedAt: 1 };
+    const source = { get: <T>(key: string) => (key === pinnedProjectsKey ? [raw] : undefined) as T };
+    const journal = new ProjectJournal(path);
+    const store = new ProjectStore(journal, host, source);
+    await store.pin(project, 3);
+    await store.pin(project, 4);
+    const before = await store.read();
+    assert.equal(before.pins.length, 2);
+    await assert.rejects(store.locate("pins", raw.id, project), /already pinned/);
+    const unverified = new ProjectStore(journal, undefined, source);
+    await assert.rejects(unverified.locate("pins", raw.id, project), /cannot verify/);
+    assert.deepEqual(await store.read(), before);
   });
 
   test("recovers after a migration failure without modifying the original values", async () => {

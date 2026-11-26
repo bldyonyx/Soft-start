@@ -128,7 +128,9 @@ try {
     browser.once("error", reject);
     browser.once("exit", (code) => reject(new Error(`Chromium exited with code ${code}`)));
   });
-  const [page] = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+  const page = targets.find(({ type, url }) => type === "page" && url === "about:blank");
+  assert.ok(page, "Chromium did not expose the test tab");
   socket = new WebSocket(page.webSocketDebuggerUrl);
   await once(socket, "open");
   const pending = new Map();
@@ -245,6 +247,19 @@ try {
   await click(".utility-tile");
   assert.equal(await evaluate("requests.some(({type}) => type === 'quickAction')"), true);
   await evaluate("window.postMessage({type:'projectAction',busy:false}, '*')");
+  await evaluate(`window.postMessage({type:'pinnedProjects',projects:[
+    {id:'a'.repeat(64), name:'Legacy project', path:'/projects/legacy', kind:'folder', unresolved:true}
+  ]}, '*')`);
+  await waitFor("document.querySelector('.pinned-row .recent-open')?.disabled === true");
+  await click(".pinned-row .recent-menu-trigger");
+  assert.equal(await evaluate("document.querySelector('.pinned-row .recent-menu-items button').textContent"), "Locate project");
+  await click(".pinned-row .recent-menu-items button");
+  assert.equal(await evaluate("requests.some(({type,id}) => type === 'locatePinnedProject' && id === 'a'.repeat(64))"), true);
+  await evaluate(`window.postMessage({type:'projectAction',busy:false,error:'This location is already pinned.',
+    target:{section:'pins',id:'a'.repeat(64)}}, '*')`);
+  await waitFor("document.querySelector('.pinned-row [role=alert]')?.textContent === 'This location is already pinned.'");
+  await evaluate(`window.postMessage({type:'pinnedProjects',projects:[]}, '*');
+    window.postMessage({type:'projectAction',busy:false}, '*')`);
   await click(".settings-gear");
   await waitFor("document.querySelector('.settings-view')");
   assert.equal(await evaluate("document.querySelector('fieldset').disabled"), false, "preview must work before a host reply");

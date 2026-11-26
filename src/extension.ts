@@ -5,12 +5,12 @@ import { createProject } from "./newProject";
 import { workspaceProjectStore } from "./projectStore";
 import { cloneProject, ProjectActions } from "./projectActions";
 import { assertProjectOrigin, currentProject, openProject, presentProject, projectId } from "./projects";
-import { promptPinnedProjectName, selectPinnedProject } from "./pinnedProjects";
+import { addPinnedProject, promptPinnedProjectName, selectProjectLocation } from "./pinnedProjects";
 import { DashboardPanel } from "./dashboardPanel";
 import { Startup, startupScope } from "./startup";
 import { onSettingsChanged } from "./settingsConfiguration";
 import { SettingsWebview } from "./settingsWebview";
-import { isDashboardMessage, settingsHostMeta, settingsHostVersion, type ProjectActionMessage, type PinnedProjectsMessage, type RecentProjectsMessage } from "./webviewMessages";
+import { isDashboardMessage, settingsHostMeta, settingsHostVersion, type ProjectActionMessage, type ProjectActionTarget, type PinnedProjectsMessage, type RecentProjectsMessage } from "./webviewMessages";
 
 function getNonce(): string {
   return randomBytes(16).toString("base64");
@@ -105,7 +105,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }).catch((error: unknown) => {
       const detail = error instanceof Error ? error.message : String(error);
-      sendProjectAction(actions.status(`Could not refresh projects. ${detail}`));
+      sendProjectAction(actions.status(`Could not refresh projects. ${detail}`, { section: "pins" }));
     });
     return refreshing;
   }
@@ -191,7 +191,12 @@ export function activate(context: vscode.ExtensionContext) {
         await refreshProjects();
         return;
       }
-      await actions.run(async () => {
+      const target: ProjectActionTarget = {
+        section: message.type === "quickAction" ? "quick" :
+          message.type.endsWith("RecentProject") || message.type === "viewAllRecentProjects" ? "recent" : "pins",
+        id: "id" in message ? message.id : undefined,
+      };
+      await actions.run(async (focus) => {
         if (message.type === "quickAction") {
           switch (message.action) {
             case "newProject":
@@ -214,10 +219,19 @@ export function activate(context: vscode.ExtensionContext) {
             case "removeRecentProject":
               await store.forget(message.id);
               return;
-            case "addPinnedProject": {
-              const project = await selectPinnedProject();
-              if (project) {
-                await store.pin(project);
+            case "addPinnedProject":
+              await addPinnedProject(store);
+              return;
+            case "locatePinnedProject":
+            case "locateRecentProject": {
+              const list = message.type === "locatePinnedProject" ? "pins" : "recent";
+              const original = (await store.read())[list].find(({ id }) => id === message.id);
+              if (original?.origin.kind !== "unknown") {
+                throw new Error("This project has changed. Refresh the dashboard and try again.");
+              }
+              const selection = await selectProjectLocation(original.kind, undefined, true);
+              if (selection) {
+                await store.locate(list, original.id, selection);
               }
               return;
             }
@@ -255,6 +269,7 @@ export function activate(context: vscode.ExtensionContext) {
               id: item.id,
               label: item.name,
               description: item.path,
+              detail: item.unresolved ? "Use Locate project on the dashboard to confirm this location." : undefined,
             }));
             id = (await vscode.window.showQuickPick(items, {
               title: "Recent projects",
@@ -265,6 +280,7 @@ export function activate(context: vscode.ExtensionContext) {
             id = message.id;
           }
           if (id) {
+            focus({ ...target, id });
             const latest = await store.read();
             const project = (fromPins ? latest.pins : latest.recent).find((entry) => entry.id === id);
             if (!project) {
@@ -272,13 +288,12 @@ export function activate(context: vscode.ExtensionContext) {
             }
             assertProjectOrigin(project, store.host);
             await openProject(project);
-            // Also record here when VS Code keeps the current extension host alive.
-            await store.record(project);
+            // The destination host records the workspace after VS Code opens it.
           }
         } finally {
           await refreshProjects();
         }
-      });
+      }, target);
     });
     panel.onDidDispose(() => {
       disposed = true;

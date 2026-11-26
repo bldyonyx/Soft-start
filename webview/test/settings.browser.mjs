@@ -621,6 +621,219 @@ try {
   await waitFor("document.querySelector('.settings-status [role=alert]')?.textContent.includes('different settings versions')");
   assert.equal(await evaluate("requests.some(({type}) => type === 'requestSettings')"), false);
   assert.equal(await evaluate("document.querySelector('button[type=submit]').disabled"), true);
+  await send("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/` });
+  await waitFor("document.querySelector('.settings-gear') && window.requests?.some(({type}) => type === 'requestSettings')");
+  await send("Emulation.setDeviceMetricsOverride", { width: 320, height: 650, deviceScaleFactor: 2, mobile: false });
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await evaluate(`reply = true;
+    externalEdit({welcomeMessage: '   ', headerKaomoji:'Decoration only'});
+    window.accessPins = [
+      {id:'a'.repeat(64), name:'Pinned example', path:'/projects/example', hostLabel:'Local', kind:'folder'},
+      {id:'b'.repeat(64), name:'Unresolved example', path:'/projects/unresolved', kind:'folder', unresolved:true}
+    ];
+    window.accessRecent = [{id:'c'.repeat(64), name:'Recent example', path:'/projects/recent', kind:'folder',
+      hostLabel:'Local', lastOpened:Date.now() - 3600000}];
+    window.postMessage({type:'pinnedProjects', projects:accessPins}, '*');
+    window.postMessage({type:'recentProjects', projects:accessRecent}, '*');
+  `);
+  await waitFor("document.querySelector('#dashboard-title').textContent.includes('Soft Start dashboard') && document.querySelectorAll('.recent-project-row').length === 3");
+
+  async function key(key, windowsVirtualKeyCode, modifiers = 0) {
+    const code = key === " " ? "Space" : key === "a" ? "KeyA" : key;
+    const text = key === "Enter" ? "\r" : key === " " ? " " : undefined;
+    await send("Input.dispatchKeyEvent", { type: "keyDown", key, code, text, windowsVirtualKeyCode, modifiers });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode, modifiers });
+  }
+  async function tabTo(selector, backwards = false) {
+    for (let step = 0; step < 60; step++) {
+      if (await evaluate(`document.activeElement.matches(${JSON.stringify(selector)})`)) return;
+      await key("Tab", 9, backwards ? 8 : 0);
+    }
+    assert.fail(`Keyboard focus did not reach ${selector}`);
+  }
+  async function choose(trigger, action) {
+    await tabTo(trigger);
+    await key("Enter", 13);
+    await waitFor("document.querySelector('.recent-menu-items:popover-open')?.contains(document.activeElement)");
+    for (let step = 0; step < 8; step++) {
+      if (await evaluate(`document.activeElement.textContent === ${JSON.stringify(action)}`)) {
+        await key("Enter", 13);
+        return;
+      }
+      await key("ArrowDown", 40);
+    }
+    assert.fail(`Keyboard could not reach ${action}`);
+  }
+  async function projectRequest(type, fields = {}) {
+    await waitFor(`requests.filter(({type}) => !type.startsWith("request")).at(-1)?.type === ${JSON.stringify(type)}`);
+    const latestProjectRequest = await evaluate("requests.filter(({ type }) => !type.startsWith('request')).at(-1)");
+    assert.deepEqual(latestProjectRequest, { type, ...fields });
+    const detail = `Keyboard action complete: ${type} ${fields.action ?? ""}`.trim();
+    await evaluate(`window.postMessage({type:'projectAction',busy:false, detail:${JSON.stringify(detail)}}, '*')`);
+    await waitFor(`document.querySelector('.project-status').textContent === ${JSON.stringify(detail)}`);
+  }
+  async function accessibilityTree() {
+    const { nodes } = await send("Accessibility.getFullAXTree");
+    return nodes.filter(({ ignored }) => !ignored);
+  }
+
+  let tree = await accessibilityTree();
+  const byRole = (role, name) => tree.find((node) => node.role?.value === role && node.name?.value === name);
+  assert.ok(byRole("main", "Soft Start dashboard"));
+  assert.ok(byRole("heading", "Soft Start dashboard")?.properties.some(({ name, value }) => name === "level" && value.value === 1));
+  assert.ok(byRole("button", "Open settings"));
+  assert.ok(byRole("button", "Actions for Pinned example"));
+  assert.match(byRole("button", "Actions for Unresolved example")?.description?.value ?? "", /Locate project/);
+  assert.equal(byRole("button", "Pinned example")?.description?.value, "Local /projects/example");
+  assert.ok(byRole("button", "Unresolved example")?.properties.some(({ name, value }) => name === "disabled" && value.value));
+  assert.equal(tree.some(({ name }) => name?.value === "Decoration only" || name?.value?.includes("‹𝟹")), false);
+
+  const pinnedTrigger = ".pinned-row:first-child .recent-menu-trigger";
+  const recentTrigger = '[aria-labelledby="recent-projects"] .recent-menu-trigger';
+  await tabTo(".pinned-row:first-child .recent-open");
+  await key("Enter", 13);
+  await projectRequest("openPinnedProject", { id: "a".repeat(64) });
+  await tabTo(pinnedTrigger);
+  await key(" ", 32);
+  await waitFor("document.activeElement.textContent === 'Open project'");
+  await key("Escape", 27);
+  assert.equal(await evaluate(`document.activeElement.matches('${pinnedTrigger}')`), true);
+  await key("Enter", 13);
+  await waitFor("document.activeElement.textContent === 'Open project'");
+  await key("ArrowUp", 38);
+  assert.equal(await evaluate("document.activeElement.textContent"), "Unpin project");
+  await key("Tab", 9);
+  assert.equal(await evaluate("Boolean(document.querySelector('.recent-menu-items:popover-open'))"), false);
+  assert.equal(await evaluate("document.activeElement.getAttribute('aria-label')"), "Actions for Unresolved example");
+  await choose(pinnedTrigger, "Rename");
+  await projectRequest("renamePinnedProject", { id: "a".repeat(64) });
+  await choose(".pinned-row:nth-child(2) .recent-menu-trigger", "Locate project");
+  await projectRequest("locatePinnedProject", { id: "b".repeat(64) });
+  await choose(pinnedTrigger, "Move down");
+  await projectRequest("reorderPinnedProjects", { ids: ["b".repeat(64), "a".repeat(64)], id: "a".repeat(64) });
+  await tabTo('[aria-labelledby="recent-projects"] .recent-open');
+  await key("Enter", 13);
+  await projectRequest("openRecentProject", { id: "c".repeat(64) });
+  await choose(recentTrigger, "Pin project");
+  await projectRequest("pinRecentProject", { id: "c".repeat(64) });
+  await choose(pinnedTrigger, "Unpin project");
+  await projectRequest("unpinProject", { id: "a".repeat(64) });
+  for (const [index, action] of ["newProject", "openFolder", "cloneRepository"].entries()) {
+    await tabTo(`.utility-tile:nth-child(${index + 1})`);
+    await key(" ", 32);
+    await projectRequest("quickAction", { action });
+  }
+
+  async function measureContrast(root, selectors) {
+    return evaluate(`(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const painter = canvas.getContext("2d", {willReadFrequently:true});
+      const linear = (channel) => {
+        const value = channel / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      };
+      const luminance = ([r,g,b]) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+      const pixel = () => luminance(painter.getImageData(0,0,1,1).data);
+      const paint = (color) => {
+        painter.fillStyle = color;
+        painter.fillRect(0,0,1,1);
+      };
+      return ${JSON.stringify(selectors)}.map(([selector, property, minimum, pseudo]) => {
+        const node = document.querySelector(${JSON.stringify(root)} + " " + selector);
+        if (!node) throw new Error("Missing contrast probe " + selector);
+        const layers = [];
+        for (let parent = node; parent; parent = parent.parentElement) {
+          layers.unshift(getComputedStyle(parent).backgroundColor);
+        }
+        painter.clearRect(0,0,1,1);
+        layers.forEach(paint);
+        const base = pixel();
+        const style = getComputedStyle(node, pseudo || null);
+        const color = property.startsWith("--") ? style.getPropertyValue(property).trim() : style[property];
+        paint(color);
+        const text = pixel();
+        return { selector, property, minimum, ratio:(Math.max(base,text)+0.05) / (Math.min(base,text)+0.05) };
+      });
+    })()`);
+  }
+
+  const dashboardContrast = await measureContrast('main.dashboard:not([hidden])', [
+    [".dashboard-brand", "color", 4.5], [".window-bar", "color", 4.5],
+    [".recent-name", "color", 4.5], [".recent-host", "color", 4.5], [".recent-path", "color", 4.5],
+    [".recent-time", "color", 4.5], [".recent-row .icon", "color", 3],
+    [".settings-gear", "color", 3], [".settings-gear", "--lavender", 3],
+    [".utility-tile", "color", 4.5],
+  ]);
+  for (const { selector, ratio, minimum } of dashboardContrast) assert.ok(ratio >= minimum, `${selector}: ${ratio}`);
+
+  await tabTo(".settings-gear");
+  await key("Enter", 13);
+  await waitFor("document.activeElement.id === 'settings-title'");
+  tree = await accessibilityTree();
+  assert.ok(byRole("main", "Settings"));
+  assert.equal(tree.filter((node) => node.role?.value === "main").length, 1);
+  assert.ok(byRole("navigation", "Settings sections"));
+  for (const heading of ["Appearance", "Dashboard", "Projects", "Startup"]) {
+    assert.ok(byRole("heading", heading)?.properties.some(({ name, value }) => name === "level" && value.value === 2), heading);
+  }
+  assert.ok(byRole("slider", "Panel opacity"));
+  assert.ok(byRole("button", "Back to dashboard"));
+
+  for (const section of ["appearance", "dashboard", "projects", "startup"]) {
+    await tabTo(`.settings-nav a[href="#${section}-settings"]`);
+    await key("Enter", 13);
+    assert.equal(await evaluate("document.activeElement.id"), `${section}-settings`);
+    await key("Tab", 9);
+    assert.equal(await evaluate(`(() => {
+      const focused = document.activeElement;
+      const rect = focused.getBoundingClientRect();
+      return focused.closest('fieldset')?.querySelector('h2').id === '${section}-settings' &&
+        rect.top >= document.querySelector('.settings-savebar').getBoundingClientRect().bottom &&
+        rect.bottom <= innerHeight && getComputedStyle(focused).outlineStyle === 'solid';
+    })()`), true, section);
+  }
+
+  const settingsContrast = [
+    [".settings-header h1", "color", 4.5], [".settings-help", "color", 4.5],
+    [".settings-nav a", "color", 4.5], [".settings-hex", "color", 4.5],
+    [".settings-hex", "color", 4.5, "::placeholder"], [".settings-hex", "borderTopColor", 3],
+    [".settings-hex", "--lavender", 3], [".settings-range input", "--muted", 3],
+    [".settings-range input", "--lavender", 3], [".settings-range-value", "color", 4.5],
+    [".settings-save", "color", 4.5], [".settings-swatch-check", "color", 3],
+  ];
+  for (const background of ["#080709", "#131b2a", "#23172b", "#eeedea", "#625960", "#757575"]) {
+    for (const accent of ["#c5b3e5", "#a0d8f2", "#edb5c9", "#262335"]) {
+      await evaluate(`externalEdit({backgroundColor:'${background}',accentColor:'${accent}'})`);
+      await waitFor(`[...document.querySelectorAll('.settings-hex')].map(input => input.value).join(' ') === '${background} ${accent}'`);
+      for (const { selector, property, ratio, minimum } of await measureContrast(".settings-view", settingsContrast)) {
+        assert.ok(ratio >= minimum, `${background} / ${accent} ${selector} ${property}: ${ratio}`);
+      }
+    }
+  }
+  assert.equal(await evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches && document.getAnimations().length === 0"), true);
+  assert.equal(await evaluate("document.documentElement.scrollWidth === document.documentElement.clientWidth"), true);
+
+  await tabTo(".settings-hex");
+  await key("a", 65, 2);
+  await send("Input.insertText", { text: "#23172b" });
+  await waitFor("token('--background') === '#23172b'");
+  await tabTo(".settings-save", true);
+  await evaluate("saveMode = 'held'");
+  await key("Enter", 13);
+  await waitFor("window.held?.type === 'settingsResult'");
+  await evaluate("window.postMessage(held, '*')");
+  await waitFor("document.querySelector('.settings-status [role=status]').textContent === 'Settings saved.'");
+  assert.equal(await evaluate("document.activeElement.className"), "settings-save-state");
+  await evaluate("saveMode = ''");
+  await tabTo(".settings-reset button");
+  await key(" ", 32);
+  await waitFor("document.querySelector('.settings-status [role=status]').textContent === 'Defaults restored.'");
+  assert.equal(await evaluate("document.activeElement.matches('.settings-reset button')"), true);
+  await tabTo("[data-view-focus]", true);
+  await key("Enter", 13);
+  await waitFor("document.activeElement.className === 'settings-gear'");
+  console.log("Keyboard, accessibility tree, contrast, and reduced-motion checks passed.");
   assert.deepEqual(errors, []);
   console.log("Settings browser interactions passed.");
 } finally {

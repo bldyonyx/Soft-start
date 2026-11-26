@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { contributes } from "../../package.json";
 import { isStartupBehavior, type StartupBehavior } from "../../src/startupPolicy";
 import { defaultSettings, kaomojiMaxLength, recentLimits, welcomeMaxLength, type SettingKey } from "../../src/dashboardSettings";
@@ -35,7 +35,7 @@ const dashboardShortcut = (navigator.platform.startsWith("Mac") ? dashboardKeybi
 function jumpTo(id: string) {
   const target = document.getElementById(id);
   target?.focus({ preventScroll: true });
-  target?.scrollIntoView({ block: "start" });
+  target?.scrollIntoView({ block: "start", behavior: "instant" });
 }
 
 function ColorControl({ label, value, draft, invalid, swatches, change }: {
@@ -120,32 +120,64 @@ export function SettingsView({ settings, back, preview }: {
   const directoryError = current.projectsDirectory === feedback?.rejectedDirectory ? feedback?.writes?.rejected.projectsDirectory : undefined;
   const needsReview = error || settings.hostBusy;
   const saveDisabled = !settings.ready || settings.pending || settings.rechecking || !settings.dirty || !canSave;
+  const focusOrigin = useRef<HTMLElement>(undefined);
+  const pendingFocus = useRef<HTMLParagraphElement>(null);
+
+  function runAction(action: () => void) {
+    const focused = document.activeElement;
+    focusOrigin.current = focused instanceof HTMLElement && focused.closest(".settings-view") ? focused : undefined;
+    action();
+  }
+
+  useLayoutEffect(() => {
+    const origin = focusOrigin.current;
+    if (!origin) return;
+    if (settings.pending || settings.rechecking) {
+      if (document.activeElement === document.body) pendingFocus.current?.focus({ preventScroll: true });
+      return;
+    }
+    focusOrigin.current = undefined;
+    if (document.activeElement === document.body || document.activeElement === pendingFocus.current) {
+      const next = origin.isConnected && !origin.matches(":disabled") ? origin :
+        document.querySelector<HTMLElement>(".settings-status button") ?? pendingFocus.current;
+      next?.focus();
+    }
+  }, [settings.pending, settings.rechecking, feedback]);
+
+  const feedbackContent = <>
+    {status && <p>{status}</p>}
+    {!settings.pending && rejected.length > 0 && (
+      <ul>
+        {rejected.map(([key, detail]) => (
+          <li key={key}>{key === "projectsDirectory" && directoryError
+            ? <button className="settings-text-button" type="button" onClick={() => jumpTo("projects-directory")}>{settingLabels[key]}</button>
+            : `${settingLabels[key]} — ${detail}`}</li>
+        ))}
+      </ul>
+    )}
+  </>;
 
   return (
     <main className="dashboard settings-view" aria-labelledby="settings-title">
       <header className="dashboard-header settings-header">
-        <h1 id="settings-title">Settings</h1>
+        <h1 id="settings-title" tabIndex={-1}>Settings</h1>
         <button type="button" className="settings-back" data-view-focus onClick={back}>Back to dashboard</button>
       </header>
 
       <div className="settings-savebar">
         <div>
-          <p className="settings-save-state" data-dirty={settings.dirty || undefined}>{saveState}</p>
+          <p ref={pendingFocus} tabIndex={-1} id="settings-save-state" className="settings-save-state" data-dirty={settings.dirty || undefined}>{saveState}</p>
           {needsReview && <button type="button" className="settings-text-button" onClick={() => jumpTo("settings-feedback")}>Review feedback</button>}
         </div>
-        <button type="submit" form="settings-form" className="settings-save" disabled={saveDisabled}>Save changes</button>
+        <button type="submit" form="settings-form" className="settings-save" aria-describedby="settings-save-state" disabled={saveDisabled}>Save changes</button>
       </div>
       <div className="settings-status" id="settings-feedback" tabIndex={-1}>
-        <div role={error ? "alert" : "status"}>
-          {status && <p>{status}</p>}
-          {!settings.pending && rejected.length > 0 && (
-            <ul>
-              {rejected.map(([key, detail]) => <li key={key}>{settingLabels[key]} — {detail}</li>)}
-            </ul>
-          )}
+        <div>
+          <div role="status" aria-atomic="true">{!error && feedbackContent}</div>
+          <div role="alert" aria-atomic="true">{error && feedbackContent}</div>
         </div>
         {settings.retry && !settings.rechecking && (settings.syncError || settings.unknown || settings.hostBusy) && (
-          <button type="button" onClick={settings.retry}>
+          <button type="button" onClick={() => { if (settings.retry) runAction(settings.retry); }}>
             {settings.unknown || settings.hostBusy ? "Check saved settings" : "Retry"}
           </button>
         )}
@@ -164,10 +196,10 @@ export function SettingsView({ settings, back, preview }: {
 
       <form id="settings-form" onSubmit={(event) => {
         event.preventDefault();
-        if (!saveDisabled) settings.save();
+        if (!saveDisabled) runAction(settings.save);
       }}>
         <fieldset disabled={settings.pending}>
-          <legend id="appearance-settings" tabIndex={-1}>Appearance</legend>
+          <legend><h2 id="appearance-settings" tabIndex={-1}>Appearance</h2></legend>
           <ColorControl label="Background color" value={current.backgroundColor} draft={colorDraft.backgroundColor}
             invalid={invalidColors.backgroundColor} swatches={backgroundSwatches} change={(value) => edit("backgroundColor", value)} />
           <ColorControl label="Accent color" value={current.accentColor} draft={colorDraft.accentColor}
@@ -181,7 +213,7 @@ export function SettingsView({ settings, back, preview }: {
         </fieldset>
 
         <fieldset disabled={settings.pending}>
-          <legend id="dashboard-settings" tabIndex={-1}>Dashboard</legend>
+          <legend><h2 id="dashboard-settings" tabIndex={-1}>Dashboard</h2></legend>
           <label>
             <span className="settings-label">Welcome message</span>
             <input type="text" maxLength={welcomeMaxLength} value={current.welcomeMessage}
@@ -202,7 +234,7 @@ export function SettingsView({ settings, back, preview }: {
         </fieldset>
 
         <fieldset disabled={settings.pending}>
-          <legend id="projects-settings" tabIndex={-1}>Projects</legend>
+          <legend><h2 id="projects-settings" tabIndex={-1}>Projects</h2></legend>
           <div className="settings-field">
             <label htmlFor="projects-directory" className="settings-label">Projects directory</label>
             <div className="settings-directory-entry">
@@ -211,7 +243,7 @@ export function SettingsView({ settings, back, preview }: {
                 placeholder="Ask when creating a project" spellCheck={false}
                 onChange={(event) => edit("projectsDirectory", event.currentTarget.value)} />
               <div className="settings-actions">
-                <button type="button" disabled={!settings.ready} onClick={settings.browse}>Browse…</button>
+                <button type="button" disabled={!settings.ready} onClick={() => runAction(settings.browse)}>Browse…</button>
                 <button type="button" disabled={!current.projectsDirectory} onClick={() => edit("projectsDirectory", "")}>Clear</button>
               </div>
             </div>
@@ -224,7 +256,7 @@ export function SettingsView({ settings, back, preview }: {
         </fieldset>
 
         <fieldset disabled={!settings.ready || settings.pending || !settings.welcome}>
-          <legend id="startup-settings" tabIndex={-1}>Startup</legend>
+          <legend><h2 id="startup-settings" tabIndex={-1}>Startup</h2></legend>
           <div className="settings-field">
             <label htmlFor="startup-behavior" className="settings-label">Startup behavior</label>
             <select id="startup-behavior" value={current.startupBehavior} aria-describedby="startup-behavior-help native-startup-help" onChange={(event) => {
@@ -245,10 +277,10 @@ export function SettingsView({ settings, back, preview }: {
             {settings.welcomeGuidance && <p id="welcome-restore-guidance">{settings.welcomeGuidance}</p>}
             {settings.welcome === "otherHost" && <p>Open the original VS Code host to restore its saved startup preference.</p>}
             <div className="settings-actions">
-              <button type="button" disabled={settings.welcome !== "available" && settings.welcome !== "changed"} onClick={settings.enableWelcome}>Replace VS Code Welcome page</button>
+              <button type="button" disabled={settings.welcome !== "available" && settings.welcome !== "changed"} onClick={() => runAction(settings.enableWelcome)}>Replace VS Code Welcome page</button>
               <button type="button" disabled={settings.welcome !== "active" && settings.welcome !== "changed"}
                 aria-describedby={settings.welcomeGuidance ? "welcome-restore-guidance" : undefined}
-                onClick={settings.restoreWelcome}>
+                onClick={() => runAction(settings.restoreWelcome)}>
                 {settings.welcomeGuidance ? "Disable Soft Start automatic startup" : "Restore original VS Code startup page"}
               </button>
             </div>
@@ -267,7 +299,7 @@ export function SettingsView({ settings, back, preview }: {
         <div className="settings-reset">
           <p id="restore-scope" className="settings-help">Resets Appearance and Dashboard settings. Keeps startup preferences, the status bar setting, the projects directory, pins, and recent projects.</p>
           <button type="button" disabled={!settings.ready || settings.pending || settings.rechecking}
-            aria-describedby="restore-scope" onClick={settings.restore}>Restore Defaults</button>
+            aria-describedby="restore-scope" onClick={() => runAction(settings.restore)}>Restore Defaults</button>
         </div>
       </form>
     </main>

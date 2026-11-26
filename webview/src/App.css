@@ -971,3 +971,44 @@ html:has(.settings-view) {
 .project-status {
   color: var(--secondary);
 }
+
+.settings-view legend h2 {
+  margin: 0;
+  font: inherit;
+}
+
+.settings-view input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.settings-view button[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.settings-swatch-check {
+  color: var(--lavender);
+}
+
+@media (forced-colors: none) {
+  .settings-range input {
+    appearance: none;
+    background: transparent;
+  }
+
+  .settings-range input::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 6px;
+    background: var(--muted);
+  }
+
+  .settings-range input::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -6px;
+    border: 2px solid var(--elevated);
+    border-radius: 50%;
+    background: var(--lavender);
+  }
+}

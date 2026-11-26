@@ -76,3 +76,13 @@ button {
   background: var(--lavender);
   color: var(--background);
 }
+
+.screen-reader-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

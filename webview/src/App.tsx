@@ -86,7 +86,7 @@ function formatLastOpened(timestamp: number, now: number) {
 type SendProject = (request: ProjectRequest) => void;
 type ProjectAction = { label: string; run: () => void; disabled?: boolean; destructive?: boolean };
 
-function ProjectMenu({ name, actions }: { name: string; actions: ProjectAction[] }) {
+function ProjectMenu({ name, actions, guidanceId }: { name: string; actions: ProjectAction[]; guidanceId?: string }) {
   const [expanded, setExpanded] = useState(false);
   const menuId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -107,6 +107,10 @@ function ProjectMenu({ name, actions }: { name: string; actions: ProjectAction[]
       if (!anchor || !menu) return;
       const { top, bottom, right } = anchor.getBoundingClientRect();
       const viewport = document.documentElement;
+      if (bottom <= 0 || top >= viewport.clientHeight) {
+        closeMenu();
+        return;
+      }
       const below = viewport.clientHeight - bottom - 12;
       const above = top - 12;
       const openAbove = below < menu.scrollHeight + 2 && above > below;
@@ -170,6 +174,7 @@ function ProjectMenu({ name, actions }: { name: string; actions: ProjectAction[]
         className="recent-menu-trigger"
         aria-label={`Actions for ${name}`}
         aria-expanded={expanded}
+        aria-describedby={guidanceId}
         aria-controls={menuId}
         onClick={() => expanded ? closeMenu() : setExpanded(true)}
       >
@@ -188,31 +193,35 @@ function ProjectMenu({ name, actions }: { name: string; actions: ProjectAction[]
 }
 
 function ProjectOpenButton({ project, open, pinned }: { project: ProjectItem; open: () => void; pinned?: boolean }) {
+  const id = useId();
+  const description = [pinned && `${id}-pin`, project.hostLabel && `${id}-host`, `${id}-path`].filter(Boolean).join(" ");
   const location = project.hostLabel ? `${project.hostLabel} · ${project.path}` : project.path;
   return (
-    <button type="button" className="recent-open" disabled={project.unresolved} onClick={open} title={`${project.name}\n${location}`}>
+    <button type="button" className="recent-open" disabled={project.unresolved} onClick={open}
+      aria-labelledby={`${id}-name`} aria-describedby={description} title={`${project.name}\n${location}`}>
       <Icon name={project.kind} />
       <span className="recent-project-info">
         <span className="recent-heading">
-          <span className="recent-name">{project.name}</span>
-          {pinned && <span className="recent-pin" title="Pinned project" role="img" aria-label="Pinned project"><Icon name="pin" /></span>}
+          <span className="recent-name" id={`${id}-name`}>{project.name}</span>
+          {pinned && <span className="recent-pin" id={`${id}-pin`} title="Pinned project" role="img" aria-label="Pinned project"><Icon name="pin" /></span>}
         </span>
-        {project.hostLabel && <span className="recent-host">{project.hostLabel}</span>}
-        <span className="recent-path">{project.path}</span>
+        {project.hostLabel && <span className="recent-host" id={`${id}-host`}>{project.hostLabel}</span>}
+        <span className="recent-path" id={`${id}-path`}>{project.path}</span>
       </span>
     </button>
   );
 }
 
-function ProjectFeedback({ project, error }: { project: ProjectItem; error?: string }) {
+function ProjectFeedback({ guidanceId, error }: { guidanceId?: string; error?: string }) {
   return <>
-    {project.unresolved && <p className="project-row-message">Confirm this location with Locate project in the menu.</p>}
+    {guidanceId && <p id={guidanceId} className="project-row-message">Confirm this location with Locate project in the menu.</p>}
     {error && <p className="project-row-message" role="alert">{error}</p>}
   </>;
 }
 
 function RecentProjectRow({ project, now, pinned, error, pending, send }: { project: RecentProjectItem; now: number; pinned: boolean; error?: string; pending: boolean; send: SendProject }) {
   const open = () => send({ type: "openRecentProject", id: project.id });
+  const guidanceId = project.unresolved ? `recent-${project.id}-guidance` : undefined;
   return (
     <li className="recent-row recent-project-row" aria-busy={pending || undefined}>
       <ProjectOpenButton project={project} open={open} pinned={pinned} />
@@ -223,7 +232,7 @@ function RecentProjectRow({ project, now, pinned, error, pending, send }: { proj
       >
         {formatLastOpened(project.lastOpened, now)}
       </time>
-      <ProjectMenu name={project.name} actions={[
+      <ProjectMenu name={project.name} guidanceId={guidanceId} actions={[
         project.unresolved
           ? { label: "Locate project", run: () => send({ type: "locateRecentProject", id: project.id }) }
           : { label: "Open project", run: open },
@@ -232,7 +241,7 @@ function RecentProjectRow({ project, now, pinned, error, pending, send }: { proj
         }) },
         { label: "Remove from recent projects", destructive: true, run: () => send({ type: "removeRecentProject", id: project.id }) },
       ]} />
-      <ProjectFeedback project={project} error={error} />
+      <ProjectFeedback guidanceId={guidanceId} error={error} />
     </li>
   );
 }
@@ -267,6 +276,7 @@ function PinnedProjectsPanel({ projects, action, send }: { projects: ProjectItem
         <ul className="recent-list">
           {projects.map((project, index) => {
             const open = () => send({ type: "openPinnedProject", id: project.id });
+            const guidanceId = project.unresolved ? `pin-${project.id}-guidance` : undefined;
             const dragging = drag?.id === project.id;
             const over = drag?.over === project.id && source >= 0;
             return (
@@ -307,7 +317,7 @@ function PinnedProjectsPanel({ projects, action, send }: { projects: ProjectItem
                   <Icon name="grip" />
                 </span>
                 <ProjectOpenButton project={project} open={open} />
-                <ProjectMenu name={project.name} actions={[
+                <ProjectMenu name={project.name} guidanceId={guidanceId} actions={[
                   project.unresolved
                     ? { label: "Locate project", run: () => send({ type: "locatePinnedProject", id: project.id }) }
                     : { label: "Open project", run: open },
@@ -317,7 +327,7 @@ function PinnedProjectsPanel({ projects, action, send }: { projects: ProjectItem
                   { label: "Move down", disabled: index === projects.length - 1, run: () => move(index, index + 1) },
                   { label: "Unpin project", destructive: true, run: () => send({ type: "unpinProject", id: project.id }) },
                 ]} />
-                <ProjectFeedback project={project} error={action.target?.section === "pins" && action.target.id === project.id ? action.error : undefined} />
+                <ProjectFeedback guidanceId={guidanceId} error={action.target?.section === "pins" && action.target.id === project.id ? action.error : undefined} />
               </li>
             );
           })}
@@ -386,7 +396,7 @@ function useProjectLists() {
     const origin = focusOrigin.current;
     if (!origin) return;
     if (document.activeElement === document.body && !origin.section.closest("[hidden]")) {
-      (origin.control.isConnected ? origin.control : origin.section).focus({ preventScroll: true });
+      (origin.control.isConnected ? origin.control : origin.section).focus();
     }
     if (!locked.current) focusOrigin.current = undefined;
   }, [action, pinned, recent]);
@@ -477,6 +487,7 @@ function RecentProjectsPanel({ projects, pinned, now, limit, action, send }: {
 
 function WelcomeWindow({ settings, preview = false }: { settings: DashboardSettings; preview?: boolean }) {
   const Heading = preview ? "h3" : "h1";
+  const hasWelcome = Boolean(settings.welcomeMessage.trim());
   return (
     <div className="welcome-window">
       <div className="window-bar">
@@ -489,7 +500,10 @@ function WelcomeWindow({ settings, preview = false }: { settings: DashboardSetti
       </div>
       <div className={preview ? "window-content preview-window-content" : "window-content"}>
         {preview && <img className="settings-preview-artwork artwork" src={watermark} alt="" aria-hidden="true" />}
-        <Heading>{settings.welcomeMessage}{settings.decorativeSymbols && <> <Accent>‹𝟹</Accent></>}</Heading>
+        <Heading id={preview ? undefined : "dashboard-title"}>
+          {hasWelcome ? settings.welcomeMessage : <span className="screen-reader-only">{preview ? "Welcome message" : "Soft Start dashboard"}</span>}
+          {settings.decorativeSymbols && <> <Accent>‹𝟹</Accent></>}
+        </Heading>
         {settings.decorativeSymbols && <Accent>・・・・・</Accent>}
       </div>
     </div>
@@ -516,7 +530,7 @@ function App() {
 
   useEffect(() => {
     if (showSettings) {
-      document.querySelector<HTMLButtonElement>("[data-view-focus]")?.focus();
+      document.getElementById("settings-title")?.focus();
     } else if (focusOnReturn.current) {
       settingsButton.current?.focus();
     }
@@ -525,7 +539,7 @@ function App() {
   return (
     <>
       {!showSettings && <img className="dashboard-watermark artwork" src={watermark} alt="" aria-hidden="true" />}
-      <main className="dashboard" hidden={showSettings}>
+      <main className="dashboard" aria-labelledby="dashboard-title" hidden={showSettings}>
         <header className="dashboard-header">
           <div className="dashboard-brand">
             {symbols && <span className="brand-mark"><Accent>𓏲ּ𝄢</Accent></span>}
@@ -571,7 +585,7 @@ function App() {
           </div>
 
           <DashboardSection id="quick-actions" title="Quick actions" accent={symbols ? "ʚ⠀ິɞ" : undefined}>
-            <div className="quick-actions" role="group" aria-labelledby="quick-actions">
+            <div className="quick-actions">
               {quickActions.map(({ label, icon, action }) => (
                 <button
                   type="button"
@@ -588,7 +602,7 @@ function App() {
           </DashboardSection>
         </div>
         {(!projectAction.target || projectAction.target.section === "quick") && projectAction.error && <p className="project-action-message" role="alert">{projectAction.error}</p>}
-        {!showSettings && <p className="project-action-message project-status" role="status">
+        {!showSettings && <p className="project-action-message project-status" role="status" aria-atomic="true">
           {projectAction.detail ?? (projectAction.busy ? "Working on a project action…" :
             !listsReady && !loadError ? "Loading projects…" : "")}
         </p>}

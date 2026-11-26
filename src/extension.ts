@@ -161,6 +161,7 @@ export function activate(context: vscode.ExtensionContext) {
         ],
       },
     );
+    panel.iconPath = vscode.Uri.joinPath(context.extensionUri, "assets", "midnight-bunny.svg");
     const { webview } = panel;
     dashboards.add(webview);
     let disposed = false;

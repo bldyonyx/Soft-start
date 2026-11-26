@@ -3,6 +3,7 @@
   "displayName": "Soft Start",
   "publisher": "bldyonyx",
   "description": "A cozy, customizable VS Code welcome dashboard",
+  "icon": "assets/midnight-bunny.png",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.146.0"

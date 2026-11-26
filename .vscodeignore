@@ -1,7 +1,9 @@
-# Package only the extension entry point, runtime modules, and built webview.
+# Package only the extension entry point, runtime modules, built webview, and runtime branding.
 # VSCE always includes package.json and README.md.
 **
 !CHANGELOG.md
+!assets/midnight-bunny.png
+!assets/midnight-bunny.svg
 !out/*.js
 !out/*.js.map
 !media/index.html

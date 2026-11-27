@@ -28,7 +28,7 @@
   display: grid;
   flex: none;
   place-items: center;
-  border: 1px solid var(--border);
+  border: 1px solid var(--panel-border);
   background: var(--inner-surface);
   color: var(--lavender);
 }
@@ -62,7 +62,7 @@
 
 .welcome-window {
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 1px solid var(--panel-border);
   border-radius: var(--radius);
   background: var(--panel-surface);
 }
@@ -73,7 +73,7 @@
   align-items: center;
   min-height: 33px;
   padding-inline: 13px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--panel-border);
   background: var(--title-bar);
   color: var(--secondary);
   font-size: 12px;
@@ -179,7 +179,7 @@
   gap: 10px;
   min-height: 118px;
   padding: clamp(10px, 1.7vw, 14px);
-  border: 1px solid var(--border);
+  border: 1px solid var(--panel-border);
   border-radius: var(--radius);
   background: var(--panel-surface);
   container-type: inline-size;
@@ -225,7 +225,7 @@
   gap: 0 6px;
   min-height: 52px;
   padding: 4px 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--panel-border);
   border-radius: 6px;
   background: var(--inner-surface);
   color: var(--secondary);
@@ -420,7 +420,7 @@
   min-width: 0;
   min-height: 62px;
   padding: 9px clamp(11px, calc(3vw - 8px), 16px);
-  border: 1px solid var(--border);
+  border: 1px solid var(--panel-border);
   border-radius: var(--radius);
   background: var(--panel-surface);
   color: var(--text);
@@ -563,7 +563,7 @@ html:has(.settings-view) {
   gap: 8px;
   min-height: 56px;
   padding: 8px clamp(9px, 2vw, 16px);
-  border: 1px solid var(--border);
+  border: 1px solid var(--panel-border);
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--surface) 94%, var(--background));
 }
@@ -628,7 +628,7 @@ html:has(.settings-view) {
   flex-wrap: wrap;
   gap: 4px 14px;
   padding-block-end: 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--panel-border);
 }
 
 .settings-nav a {
@@ -657,7 +657,7 @@ html:has(.settings-view) {
   min-inline-size: 0;
   margin: 0;
   padding: clamp(12px, 2.5vw, 22px);
-  border: 1px solid var(--border);
+  border: 1px solid var(--panel-border);
   border-radius: var(--radius);
   background: var(--panel-surface);
 }
@@ -861,7 +861,7 @@ html:has(.settings-view) {
   align-items: center;
   gap: 10px 16px;
   padding-block-start: 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--panel-border);
 }
 
 .settings-reset > p {
@@ -925,7 +925,7 @@ html:has(.settings-view) {
   gap: 7px;
   min-height: 52px;
   padding-inline: 14px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--panel-border);
   border-radius: 6px;
   background: var(--inner-surface);
 }
@@ -934,7 +934,7 @@ html:has(.settings-view) {
   width: min(42%, 120px);
   height: 6px;
   border-radius: 4px;
-  background: var(--border);
+  background: var(--panel-border);
 }
 
 .project-loading-row span + span {
@@ -1046,7 +1046,7 @@ html:has(.settings-view) {
 .project-actions:not([aria-disabled="true"])
   .recent-project-row:not([aria-busy="true"], [data-dragging], [data-drop]):has(.recent-open:enabled):not(:has(.recent-open:active)):hover {
   background: color-mix(in srgb, var(--inner-surface) 48%, var(--hover-surface));
-  border-color: color-mix(in srgb, var(--border) 76%, var(--lavender));
+  border-color: color-mix(in srgb, var(--panel-border) 76%, var(--lavender));
 }
 
 .project-actions:not([aria-disabled="true"])
@@ -1057,7 +1057,7 @@ html:has(.settings-view) {
 
 .project-actions:not([aria-disabled="true"]) .recent-project-row:has(.recent-open:enabled:active) {
   background: var(--hover-surface);
-  border-color: color-mix(in srgb, var(--border) 52%, var(--lavender));
+  border-color: color-mix(in srgb, var(--panel-border) 52%, var(--lavender));
 }
 
 .project-actions:not([aria-disabled="true"]) :is(.recent-menu-trigger[aria-expanded="false"],

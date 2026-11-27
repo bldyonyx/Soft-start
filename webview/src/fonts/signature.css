@@ -126,6 +126,10 @@ main.settings-view .settings-help strong {
   font-synthesis: none;
 }
 
+main.settings-view #header-kaomoji {
+  font-family: "Mali", "Segoe UI", var(--symbol-font);
+}
+
 main.settings-view :is(.settings-label, .settings-check > span) {
   font-family: "Mali", "Segoe UI", system-ui, sans-serif;
   font-weight: 500;

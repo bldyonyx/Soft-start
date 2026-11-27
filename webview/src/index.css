@@ -11,6 +11,7 @@
   --panel-surface: color-mix(in srgb, var(--surface) var(--panel-opacity), transparent);
   --inner-surface: color-mix(in srgb, var(--elevated) 94%, transparent);
   --border: #29242f;
+  --panel-border: var(--border);
   --hover-surface: #211d27;
   --text: #edebf0;
   --secondary: #a8a3ad;

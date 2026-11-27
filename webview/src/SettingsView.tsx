@@ -221,7 +221,7 @@ export function SettingsView({ settings, back, preview }: {
           </label>
           <label>
             <span className="settings-label">Header kaomoji</span>
-            <input type="text" maxLength={kaomojiMaxLength} value={current.headerKaomoji}
+            <input id="header-kaomoji" type="text" maxLength={kaomojiMaxLength} value={current.headerKaomoji}
               onChange={(event) => edit("headerKaomoji", event.currentTarget.value)} />
           </label>
           <label className="settings-check">

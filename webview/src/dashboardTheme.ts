@@ -72,6 +72,8 @@ function themeColors(background: string, accent: string): Record<string, string>
     "--lavender": readable(rgb(accent), foreground, surfaces),
     "--blue": readable(rgb("#a0d8f2"), foreground, surfaces),
     "--border": css(mix(base, foreground, 0.55)),
+    // Dark panel edges stay close to their surface. Controls retain their stronger borders.
+    ...(!light && { "--panel-border": css(mix(surface, foreground, 0.12)) }),
     "color-scheme": light ? "light" : "dark",
   };
 }

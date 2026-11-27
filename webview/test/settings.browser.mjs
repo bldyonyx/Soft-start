@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { readFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import { extname, join } from "node:path";
-import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { withWebviewBrowser } from "./webview-browser.mjs";
 
 const [chromium, media = fileURLToPath(new URL("../../media", import.meta.url))] = process.argv.slice(2);
 assert.ok(chromium, "Usage: node webview/test/settings.browser.mjs <chromium executable> [build directory]");
@@ -88,87 +83,7 @@ const hostScript = `
   
 `;
 
-const contentTypes = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
-const server = createServer(async (request, response) => {
-  const url = new URL(request.url, "http://127.0.0.1");
-  const path = url.pathname === "/" ? "/index.html" : url.pathname;
-  if (path !== "/index.html" && !/^\/assets\/[\w-]+\.(?:js|css|svg|woff2)$/.test(path)) {
-    response.writeHead(404).end();
-    return;
-  }
-  try {
-    let body = await readFile(join(media, path));
-    if (path === "/index.html") {
-      const hostMarker = url.searchParams.has("legacy") ? "" : '<meta name="soft-start-settings-host" content="4">';
-      body = body.toString().replace("<head>", `<head>${hostMarker}<script nonce="test-host">${hostScript}</script>`)
-        .replace(/<script type=/g, '<script nonce="test-host" type=');
-    }
-    response.writeHead(200, {
-      "Content-Type": contentTypes[extname(path)],
-      "Content-Security-Policy": "default-src 'none'; script-src 'nonce-test-host'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'",
-    });
-    response.end(body);
-  } catch {
-    response.writeHead(404).end();
-  }
-});
-server.listen(0, "127.0.0.1");
-await once(server, "listening");
-
-const browser = spawn(chromium, ["--remote-debugging-port=0", "--window-size=1200,900", "about:blank"],
-  { stdio: ["ignore", "ignore", "pipe"] });
-let socket;
-try {
-  const port = await new Promise((resolve, reject) => {
-    const lines = createInterface({ input: browser.stderr });
-    lines.on("line", (line) => {
-      const match = line.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)/);
-      if (match) resolve(match[1]);
-    });
-    browser.once("error", reject);
-    browser.once("exit", (code) => reject(new Error(`Chromium exited with code ${code}`)));
-  });
-  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-  const page = targets.find(({ type, url }) => type === "page" && url === "about:blank");
-  assert.ok(page, "Chromium did not expose the test tab");
-  socket = new WebSocket(page.webSocketDebuggerUrl);
-  await once(socket, "open");
-  const pending = new Map();
-  const errors = [];
-  let nextId = 0;
-  socket.addEventListener("message", ({ data }) => {
-    const message = JSON.parse(data);
-    if (message.id) {
-      pending.get(message.id)(message);
-      pending.delete(message.id);
-    } else if (message.method === "Runtime.exceptionThrown") {
-      errors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
-    } else if (message.method === "Log.entryAdded" && ["security", "javascript"].includes(message.params.entry.source)) {
-      errors.push(message.params.entry.text);
-    } else if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") {
-      errors.push(message.params.args.map(({ value, description }) => value ?? description).join(" "));
-    }
-  });
-  async function send(method, params = {}) {
-    const id = ++nextId;
-    const response = new Promise((resolve) => pending.set(id, resolve));
-    socket.send(JSON.stringify({ id, method, params }));
-    const result = await response;
-    assert.equal(result.error, undefined, JSON.stringify(result.error));
-    return result.result;
-  }
-  async function evaluate(expression) {
-    const { result, exceptionDetails } = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
-    assert.equal(exceptionDetails, undefined, result.description);
-    return result.value;
-  }
-  async function waitFor(expression) {
-    for (let attempt = 0; attempt < 100; attempt++) {
-      if (await evaluate(`Boolean(${expression})`)) return;
-      await delay(50);
-    }
-    assert.fail(`Timed out waiting for ${expression}`);
-  }
+await withWebviewBrowser({ chromium, media, hostScript }, async ({ send, evaluate, waitFor, errors, baseUrl }) => {
   async function click(selector) {
     const point = await evaluate(`(() => {
       const node = document.querySelector(${JSON.stringify(selector)});
@@ -234,9 +149,7 @@ try {
     })()`);
   }
 
-  await send("Runtime.enable");
-  await send("Log.enable");
-  await send("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/` });
+  await send("Page.navigate", { url: `${baseUrl}/` });
   await waitFor("document.querySelector('.settings-gear')");
   await waitFor("requests.some(({type}) => type === 'requestRecentProjects')");
   assert.equal(await evaluate("document.querySelectorAll('.project-loading-row').length"), 2);
@@ -615,13 +528,13 @@ try {
 
   await click(saveButton);
   await waitFor("document.querySelector('fieldset').disabled");
-  await send("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/?legacy=1` });
+  await send("Page.navigate", { url: `${baseUrl}/?legacy=1` });
   await waitFor("document.querySelector('.settings-gear')");
   await click(".settings-gear");
   await waitFor("document.querySelector('.settings-status [role=alert]')?.textContent.includes('different settings versions')");
   assert.equal(await evaluate("requests.some(({type}) => type === 'requestSettings')"), false);
   assert.equal(await evaluate("document.querySelector('button[type=submit]').disabled"), true);
-  await send("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/` });
+  await send("Page.navigate", { url: `${baseUrl}/` });
   await waitFor("document.querySelector('.settings-gear') && window.requests?.some(({type}) => type === 'requestSettings')");
   await send("Emulation.setDeviceMetricsOverride", { width: 320, height: 650, deviceScaleFactor: 2, mobile: false });
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
@@ -758,14 +671,40 @@ try {
     })()`);
   }
 
-  const dashboardContrast = await measureContrast('main.dashboard:not([hidden])', [
+  const dashboardContrast = [
     [".dashboard-brand", "color", 4.5], [".window-bar", "color", 4.5],
     [".recent-name", "color", 4.5], [".recent-host", "color", 4.5], [".recent-path", "color", 4.5],
     [".recent-time", "color", 4.5], [".recent-row .icon", "color", 3],
     [".settings-gear", "color", 3], [".settings-gear", "--lavender", 3],
-    [".utility-tile", "color", 4.5],
-  ]);
-  for (const { selector, ratio, minimum } of dashboardContrast) assert.ok(ratio >= minimum, `${selector}: ${ratio}`);
+    [".utility-tile", "color", 4.5], [".utility-tile", "--lavender", 3],
+  ];
+  const dashboardRoot = 'main.dashboard:not([hidden])';
+  const builtInBackgrounds = ["#080709", "#131b2a", "#23172b"];
+  const builtInAccents = ["#c5b3e5", "#a0d8f2", "#edb5c9"];
+  const originalColors = await evaluate("({ backgroundColor: saved.backgroundColor, accentColor: saved.accentColor })");
+  for (const backgroundColor of builtInBackgrounds) {
+    for (const accentColor of builtInAccents) {
+      await evaluate(`externalEdit(${JSON.stringify({ backgroundColor, accentColor })})`);
+      const accentRgb = accentColor.slice(1).match(/../g).map(channel => Number.parseInt(channel, 16)).join(" ");
+      await waitFor(`token('--background') === '${backgroundColor}' &&
+        ['${accentColor}', 'rgb(${accentRgb})'].includes(token('--lavender'))`);
+      for (const { selector, ratio, minimum } of await measureContrast(dashboardRoot, dashboardContrast)) {
+        assert.ok(ratio >= minimum, `${backgroundColor} / ${accentColor} ${selector}: ${ratio}`);
+      }
+    }
+    for (const { selector, ratio } of await measureContrast(dashboardRoot, [
+      [".welcome-window", "borderTopColor"], [".project-panel", "borderTopColor"],
+      [".recent-project-row", "borderTopColor"],
+    ])) {
+      assert.ok(ratio > 1.15 && ratio < 1.7, `${backgroundColor} ${selector} panel edge: ${ratio}`);
+    }
+    if (backgroundColor === "#080709") {
+      assert.equal(await evaluate("getComputedStyle(document.querySelector('.recent-project-row')).borderTopColor"),
+        "rgb(41, 36, 47)");
+    }
+  }
+  await evaluate(`externalEdit(${JSON.stringify(originalColors)})`);
+  await waitFor(`token('--background') === '${originalColors.backgroundColor}'`);
 
   await tabTo(".settings-gear");
   await key("Enter", 13);
@@ -798,12 +737,14 @@ try {
     [".settings-header h1", "color", 4.5], [".settings-help", "color", 4.5],
     [".settings-nav a", "color", 4.5], [".settings-hex", "color", 4.5],
     [".settings-hex", "color", 4.5, "::placeholder"], [".settings-hex", "borderTopColor", 3],
-    [".settings-hex", "--lavender", 3], [".settings-range input", "--muted", 3],
+    [".settings-hex", "--lavender", 3], ["#header-kaomoji", "color", 4.5],
+    ["#header-kaomoji", "borderTopColor", 3], ["#header-kaomoji", "--lavender", 3],
+    [".settings-range input", "--muted", 3],
     [".settings-range input", "--lavender", 3], [".settings-range-value", "color", 4.5],
     [".settings-save", "color", 4.5], [".settings-swatch-check", "color", 3],
   ];
-  for (const background of ["#080709", "#131b2a", "#23172b", "#eeedea", "#625960", "#757575"]) {
-    for (const accent of ["#c5b3e5", "#a0d8f2", "#edb5c9", "#262335"]) {
+  for (const background of [...builtInBackgrounds, "#eeedea", "#625960", "#757575"]) {
+    for (const accent of [...builtInAccents, "#262335"]) {
       await evaluate(`externalEdit({backgroundColor:'${background}',accentColor:'${accent}'})`);
       await waitFor(`[...document.querySelectorAll('.settings-hex')].map(input => input.value).join(' ') === '${background} ${accent}'`);
       for (const { selector, property, ratio, minimum } of await measureContrast(".settings-view", settingsContrast)) {
@@ -835,7 +776,7 @@ try {
   await waitFor("document.activeElement.className === 'settings-gear'");
   console.log("Keyboard, accessibility tree, contrast, and reduced-motion checks passed.");
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
-  await send("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/?motion` });
+  await send("Page.navigate", { url: `${baseUrl}/?motion` });
   await waitFor("location.search === '?motion' && document.querySelector('.settings-gear:enabled')");
   assert.equal(await evaluate("getComputedStyle(document.querySelector('#root')).animationDuration"), "0.24s");
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.settings-gear')).transitionDuration"), "0.12s");
@@ -945,7 +886,7 @@ try {
   assert.equal(await evaluate("document.documentElement.scrollWidth === document.documentElement.clientWidth"), true);
   assert.equal(await evaluate("motionEvents.length"), 3);
   console.log("Motion timings, confirmed actions, focus, scroll restoration, and reduced motion passed.");
-  await send("Page.navigate", {url: `http://127.0.0.1:${server.address().port}/?decorations`});
+  await send("Page.navigate", {url: `${baseUrl}/?decorations`});
   await waitFor("location.search === '?decorations' && document.querySelector('.settings-gear')");
   for (const glyph of ["૮", "ഒ", "ི", "ྀ", "⸝", "・", "꒱", "𓏲", "𝄢"]) {
     assert.equal(await evaluate(`document.fonts.load('14px "Soft Start Decor"', ${JSON.stringify(glyph)})
@@ -959,7 +900,20 @@ try {
   assert.equal(await evaluate("document.querySelector('.dashboard-header > .accent').textContent"), "૮ ᴗ͈ ˕ ✙╿ྀི꒱");
   await click(".settings-gear");
   await waitFor("document.querySelector('.settings-preview-kaomoji .accent')?.textContent === '૮ ᴗ͈ ˕ ✙╿ྀི꒱'");
-  await input('label:nth-of-type(2) input[maxlength="80"]', "Z (•‿•) λ");
+  assert.equal(await evaluate("document.querySelector('#header-kaomoji').value"), "૮ ᴗ͈ ˕ ✙╿ྀི꒱");
+  assert.match(await evaluate("getComputedStyle(document.querySelector('#header-kaomoji')).fontFamily"),
+    /^Mali, .*"Soft Start Decor", system-ui/);
+  await evaluate("document.fonts.ready.then(() => true)");
+  await send("DOM.enable");
+  await send("CSS.enable");
+  const { root } = await send("DOM.getDocument");
+  const { nodeId: inputNode } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: "#header-kaomoji" });
+  const { fonts: kaomojiFonts } = await send("CSS.getPlatformFontsForNode", { nodeId: inputNode });
+  for (const family of ["Mali", "Soft Start Decor Tibetan"]) {
+    assert.ok(kaomojiFonts.some(font => font.isCustomFont && font.familyName === family && font.glyphCount > 0),
+      `${family}: ${JSON.stringify(kaomojiFonts)}`);
+  }
+  await input("#header-kaomoji", "Z (•‿•) λ");
   await waitFor("document.querySelector('.settings-preview-kaomoji .accent')?.textContent === 'Z (•‿•) λ'");
   await click("fieldset:nth-of-type(2) input[type=checkbox]");
   await waitFor("!document.querySelector('.settings-preview .accent')");
@@ -969,7 +923,7 @@ try {
   assert.equal(await evaluate("document.querySelector('main:not([hidden]) .accent')"), null);
   console.log("Decorative font assets, custom kaomojis, and decoration visibility passed.");
 
-  await send("Page.navigate", {url: `http://127.0.0.1:${server.address().port}/?unsupported-storage`});
+  await send("Page.navigate", {url: `${baseUrl}/?unsupported-storage`});
   await waitFor("location.search === '?unsupported-storage' && requests.some(({type}) => type === 'requestRecentProjects')");
   const unavailable = "Pinned and recent projects cannot be saved or loaded in this VS Code window. Soft Start requires native filesystem storage for project history.";
   await evaluate(`window.postMessage(${JSON.stringify({
@@ -991,9 +945,4 @@ try {
 
   assert.deepEqual(errors, []);
   console.log("Settings browser interactions passed.");
-} finally {
-  socket?.close();
-  browser.kill();
-  server.closeAllConnections();
-  server.close();
-}
+});

@@ -1,32 +1,14 @@
-# React + TypeScript + Vite
+# Soft Start webview
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+This React and TypeScript app renders the dashboard and its Settings view. The extension host loads the Vite production build inside a VS Code editor tab.
 
-Currently, two official plugins are available:
+Run these commands from the extension root.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+| Command | Use |
+| --- | --- |
+| `npm --prefix webview ci` | Install the webview dependencies from its lockfile. |
+| `npm --prefix webview run dev` | Preview the interface in a browser with Vite. The standalone preview has no VS Code host for project actions, saved history, or Settings writes. |
+| `npm run build:webview` | Type-check and build the dashboard into `media/`. |
+| `npm --prefix webview run lint` | Run the webview’s Oxlint checks. |
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Use the [extension development guide](../vsc-extension-quickstart.md) to test native behavior. For browser regression checks, build the webview first and run `node webview/test/settings.browser.mjs /path/to/chromium` from the extension root. The harness uses an isolated browser profile and a fixture host. See the [promotional capture guide](test/README.md) for screenshot commands.

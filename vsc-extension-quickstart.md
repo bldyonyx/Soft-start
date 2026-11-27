@@ -1,44 +1,16 @@
-# Welcome to your VS Code Extension
+# Develop Soft Start
 
-## What's in the folder
+Soft Start has a TypeScript extension host and a React webview. Use Node.js 24 and npm. From the checkout root, install dependencies for both parts.
 
-* This folder contains all of the files necessary for your extension.
-* `package.json` - this is the manifest file in which you declare your extension and command.
-  * The sample plugin registers a command and defines its title and command name. With this information VS Code can show the command in the command palette. It doesn’t yet need to load the plugin.
-* `src/extension.ts` - this is the main file where you will provide the implementation of your command.
-  * The file exports one function, `activate`, which is called the very first time your extension is activated (in this case by executing the command). Inside the `activate` function we call `registerCommand`.
-  * We pass the function containing the implementation of the command as the second parameter to `registerCommand`.
+```sh
+npm ci
+npm --prefix webview ci
+```
 
-## Get up and running straight away
+1. Open the checkout in VS Code and press **F5** using **Run Extension**. The launch task compiles the host and builds the webview.
+2. In the Extension Development Host, run **Soft Start: Open Dashboard** from the Command Palette.
+3. Debug extension host code under `src/` and dashboard code under `webview/src/`. Restart the development host after changing host code or the webview message protocol.
 
-* Press `F5` to open a new window with your extension loaded.
-* Run your command from the command palette by pressing (`Ctrl+Shift+P` or `Cmd+Shift+P` on Mac) and typing `Hello World`.
-* Set breakpoints in your code inside `src/extension.ts` to debug your extension.
-* Find output from your extension in the debug console.
+Run `npm run vscode:prepublish` to build both parts without opening a development window. `npm run watch` recompiles the host only. See the [webview guide](webview/README.md) for the standalone preview.
 
-## Make changes
-
-* You can relaunch the extension from the debug toolbar after changing code in `src/extension.ts`.
-* You can also reload (`Ctrl+R` or `Cmd+R` on Mac) the VS Code window with your extension to load your changes.
-
-## Explore the API
-
-* You can open the full set of our API when you open the file `node_modules/@types/vscode/index.d.ts`.
-
-## Run tests
-
-* Install the [Extension Test Runner](https://marketplace.visualstudio.com/items?itemName=ms-vscode.extension-test-runner)
-* Run the "watch" task via the **Tasks: Run Task** command. Make sure this is running, or tests might not be discovered.
-* Open the Testing view from the activity bar and click the Run Test" button, or use the hotkey `Ctrl/Cmd + ; A`
-* See the output of the test result in the Test Results view.
-* Make changes to `src/test/extension.test.ts` or create new test files inside the `test` folder.
-  * The provided test runner will only consider files matching the name pattern `**.test.ts`.
-  * You can create folders inside the `test` folder to structure your tests any way you want.
-
-## Go further
-
-* [Follow UX guidelines](https://code.visualstudio.com/api/ux-guidelines/overview) to create extensions that seamlessly integrate with VS Code's native interface and patterns.
-* Reduce the extension size and improve the startup time by [bundling your extension](https://code.visualstudio.com/api/working-with-extensions/bundling-extension).
-* [Publish your extension](https://code.visualstudio.com/api/working-with-extensions/publishing-extension) on the VS Code extension marketplace.
-* Automate builds by setting up [Continuous Integration](https://code.visualstudio.com/api/working-with-extensions/continuous-integration).
-* Integrate to the [report issue](https://code.visualstudio.com/api/get-started/wrapping-up#issue-reporting) flow to get issue and feature requests reported by users.
+`npm test` compiles and lints the extension host, then runs the VS Code extension suite. Use a disposable profile for manual checks involving startup preferences or project history. See the [README’s compatibility section](README.md) for storage constraints and [local packaging](README.md#build-a-local-vsix) for the VSIX workflow.
